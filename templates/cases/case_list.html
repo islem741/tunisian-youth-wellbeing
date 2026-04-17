@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h3 mb-0 flex-grow-1">Cases</h1>
+  <a href="{% url 'cases:export_csv' %}?{{ request.GET.urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Export CSV</a>
+  {% if is_operator or is_program_admin %}
+    <a href="{% url 'cases:assessment_create' %}" class="btn btn-primary btn-sm">+ New assessment</a>
+  {% endif %}
+</div>
+
+<form method="get" class="row g-2 mb-3">
+  <div class="col-auto">
+    <select name="state" class="form-select form-select-sm">
+      <option value="">All states</option>
+      {% for value, label in state_choices %}
+        <option value="{{ value }}" {% if selected_state == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select name="risk" class="form-select form-select-sm">
+      <option value="">All risk levels</option>
+      {% for value, label in risk_choices %}
+        <option value="{{ value }}" {% if selected_risk == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto"><button class="btn btn-sm btn-outline-primary">Filter</button></div>
+</form>
+
+<table class="table table-sm table-striped align-middle bg-white">
+  <thead>
+    <tr>
+      <th>#</th><th>Student</th><th>School</th><th>State</th><th>Risk</th>
+      <th class="text-end">Score</th><th>Operator</th><th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in assessments %}
+      <tr>
+        <td>{{ a.pk }}</td>
+        <td><a href="{% url 'cases:detail' a.pk %}">{{ a.student.display_name }}</a></td>
+        <td>{{ a.student.school }}</td>
+        <td>{{ a.get_workflow_state_display }}</td>
+        <td><span class="risk-{{ a.risk_level }}">{{ a.get_risk_level_display }}</span></td>
+        <td class="text-end">{{ a.total_score }}</td>
+        <td>{{ a.operator.username }}</td>
+        <td>{{ a.created_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="8" class="text-center text-muted">No cases match the current filters.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

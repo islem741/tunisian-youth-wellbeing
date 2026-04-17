@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">Platform users</h1>
+<table class="table table-sm table-striped bg-white">
+  <thead>
+    <tr><th>Username</th><th>Name</th><th>Role</th><th>School</th><th>Region</th><th>Active</th></tr>
+  </thead>
+  <tbody>
+    {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>{{ u.get_full_name }}</td>
+        <td><span class="role-badge">{{ u.get_role_display }}</span></td>
+        <td>{{ u.school|default:"—" }}</td>
+        <td>{{ u.region|default:"—" }}</td>
+        <td>{% if u.is_active %}yes{% else %}no{% endif %}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

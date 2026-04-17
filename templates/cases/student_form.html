@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+{% block content %}
+<h1 class="h3 mb-3">Add student</h1>
+<div class="card"><div class="card-body">
+<form method="post">
+  {% csrf_token %}
+  {% bootstrap_form form %}
+  <button class="btn btn-primary">Save student</button>
+</form>
+</div></div>
+{% endblock %}

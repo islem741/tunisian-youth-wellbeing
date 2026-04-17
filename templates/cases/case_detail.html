@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+{% block content %}
+<div class="row">
+  <div class="col-lg-8">
+    <h1 class="h3">
+      Case #{{ assessment.pk }} · {{ assessment.student.display_name }}
+      <span class="role-badge ms-2 risk-{{ assessment.risk_level }}">
+        {{ assessment.get_risk_level_display }}
+      </span>
+    </h1>
+    <p class="text-muted mb-3">
+      {{ assessment.student.school }} · {{ assessment.student.region }} ·
+      Grade {{ assessment.student.grade|default:"—" }} · Age {{ assessment.student.age }}
+    </p>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h2 class="h5">Current assessment</h2>
+        <p class="mb-2">
+          <strong>Workflow state:</strong>
+          {{ assessment.get_workflow_state_display }} ·
+          <strong>Total stress score:</strong>
+          {{ assessment.total_score }} / 300
+        </p>
+        <table class="table table-sm mb-2">
+          <thead><tr><th>Component</th><th class="text-end">Score</th></tr></thead>
+          <tbody>
+            {% for name, value in assessment.components.items %}
+              <tr><td>{{ name }}</td><td class="text-end">{{ value }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="alert alert-info small mb-0">
+          <strong>Why this risk level:</strong> {{ assessment.risk_explanation }}
+        </div>
+      </div>
+    </div>
+
+    {% if is_supervisor or is_program_admin %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h5">Change workflow state</h2>
+          {% if transition_form.fields.to_state.choices %}
+            <form method="post" action="{% url 'cases:transition' assessment.pk %}">
+              {% csrf_token %}
+              {% bootstrap_form transition_form %}
+              <button class="btn btn-primary btn-sm">Apply transition</button>
+            </form>
+          {% else %}
+            <p class="text-muted mb-0">This case is closed. No further transitions are allowed.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h5">Schedule appointment</h2>
+          <form method="post" action="{% url 'cases:appointment_create' assessment.pk %}">
+            {% csrf_token %}
+            {% bootstrap_form appointment_form %}
+            <button class="btn btn-outline-primary btn-sm">Schedule</button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h2 class="h5">Appointments</h2>
+        {% if appointments %}
+          <table class="table table-sm mb-0">
+            <thead><tr><th>When</th><th>Status</th><th>By</th><th></th></tr></thead>
+            <tbody>
+              {% for appt in appointments %}
+                <tr>
+                  <td>{{ appt.scheduled_for|date:"Y-m-d H:i" }}</td>
+                  <td>{{ appt.get_status_display }}</td>
+                  <td>{{ appt.scheduled_by.username }}</td>
+                  <td class="text-end">
+                    {% if is_supervisor or is_program_admin %}
+                      {% if appt.status != 'missed' %}
+                        <form method="post" action="{% url 'cases:appointment_miss' appt.pk %}" class="d-inline">
+                          {% csrf_token %}
+                          <button class="btn btn-sm btn-outline-warning">Mark missed</button>
+                        </form>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="text-muted mb-0">No appointments scheduled yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5">Case timeline</h2>
+        {% if events %}
+          {% for event in events %}
+            <div class="timeline-entry">
+              <div class="small text-muted">{{ event.created_at|date:"Y-m-d H:i" }}</div>
+              <div>{{ event.human_summary }}</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted mb-0">No events yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

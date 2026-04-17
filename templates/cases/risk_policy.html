@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+{% block content %}
+<h1 class="h3 mb-3">Risk policy</h1>
+<div class="card"><div class="card-body">
+<p>
+  Current threshold: <strong>{{ policy.threshold }}</strong> /300
+  {% if policy.updated_by %}
+    · last updated by {{ policy.updated_by.username }} on {{ policy.updated_at|date:"Y-m-d H:i" }}
+  {% endif %}
+</p>
+<form method="post">
+  {% csrf_token %}
+  {% bootstrap_form form %}
+  <button class="btn btn-primary">Save policy</button>
+</form>
+<p class="text-muted small mt-3">
+  The threshold is compared to the sum of the three component scores
+  (academic pressure + social anxiety + home environment).
+  Cases at or above this total are flagged <strong>High Risk</strong>.
+</p>
+</div></div>
+{% endblock %}

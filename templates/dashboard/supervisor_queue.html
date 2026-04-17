@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h3 mb-3">Supervisor queue</h1>
+<p class="text-muted">
+  Students currently in <strong>Assessment</strong> or
+  <strong>Intervention Planning</strong>. Current High-Risk threshold:
+  <strong>{{ policy.threshold }}</strong>.
+  <a href="{% url 'cases:risk_policy' %}">Adjust</a>.
+</p>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card kpi-card"><div class="card-body">
+      <div class="label">High-risk cases awaiting action</div>
+      <div class="value">{{ high_risk.count }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-6">
+    <div class="card kpi-card"><div class="card-body">
+      <div class="label">Missed appointments</div>
+      <div class="value">{{ missed_appointments|length }}</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h2 class="h5">Cases</h2>
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr><th>#</th><th>Student</th><th>School</th><th>Risk</th><th class="text-end">Score</th><th>State</th><th>Why flagged</th></tr>
+      </thead>
+      <tbody>
+        {% for a in assessments %}
+          <tr>
+            <td>{{ a.pk }}</td>
+            <td><a href="{% url 'cases:detail' a.pk %}">{{ a.student.display_name }}</a></td>
+            <td>{{ a.student.school }}</td>
+            <td><span class="risk-{{ a.risk_level }}">{{ a.get_risk_level_display }}</span></td>
+            <td class="text-end">{{ a.total_score }}</td>
+            <td>{{ a.get_workflow_state_display }}</td>
+            <td class="small text-muted">{{ a.risk_explanation }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="text-center text-muted">Nothing to review right now.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h2 class="h5">Recent missed appointments</h2>
+    {% if missed_appointments %}
+    <ul class="list-unstyled mb-0">
+      {% for appt in missed_appointments %}
+        <li>
+          <a href="{% url 'cases:detail' appt.assessment_id %}">
+            Case #{{ appt.assessment_id }} — {{ appt.assessment.student.display_name }}
+          </a>
+          · missed on {{ appt.scheduled_for|date:"Y-m-d H:i" }}
+        </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+      <p class="text-muted mb-0">No missed appointments.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
