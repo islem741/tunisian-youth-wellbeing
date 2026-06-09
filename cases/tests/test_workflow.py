@@ -1,95 +1,75 @@
-"""Tests for the risk engine and workflow state machine (Prompt 5)."""
-
-from __future__ import annotations
-
 import pytest
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
-from cases.models import RiskLevel, StressAssessment, WorkflowState
+from accounts.models import Role
+from cases.models import (
+    CaseEvent, InterventionPlan, SERSEntry, SERSPolicy,
+    Student, WorkflowState,
+)
+
+User = get_user_model()
 
 
-@pytest.mark.django_db
-def test_high_score_is_flagged_high_risk(operator, student, risk_policy):
-    """Prompt 5 #3: score exceeding threshold transitions to High Risk."""
-
-    a = StressAssessment.objects.create(
-        student=student,
-        operator=operator,
-        academic_pressure=80,
-        social_anxiety=70,
-        home_environment=60,
+@pytest.fixture
+def supervisor(db):
+    u = User.objects.create_user(
+        username="sup_wf", password="pw", role=Role.SUPERVISOR,
     )
-    assert a.total_score == 210
-    assert a.risk_level == RiskLevel.HIGH
-    # New high-risk cases are automatically moved to "Assessment" so the
-    # Supervisor immediately sees them in their queue.
-    assert a.workflow_state == WorkflowState.ASSESSMENT
-    assert "High-Risk threshold" in a.risk_explanation
+    u.sync_groups()
+    return u
 
 
-@pytest.mark.django_db
-def test_low_score_stays_low(operator, student, risk_policy):
-    a = StressAssessment.objects.create(
-        student=student,
-        operator=operator,
-        academic_pressure=10,
-        social_anxiety=10,
-        home_environment=10,
+@pytest.fixture
+def entry(db, supervisor):
+    SERSPolicy.objects.get_or_create(
+        pk=1,
+        defaults={"high_threshold": 65, "medium_threshold": 40},
     )
-    assert a.risk_level == RiskLevel.LOW
-    assert a.workflow_state == WorkflowState.INTAKE
-
-
-@pytest.mark.django_db
-def test_threshold_is_configurable(operator, student, risk_policy):
-    risk_policy.threshold = 30
-    risk_policy.save()
-    a = StressAssessment.objects.create(
-        student=student,
-        operator=operator,
-        academic_pressure=10,
-        social_anxiety=10,
-        home_environment=10,
+    s = Student.objects.create(
+        external_id="STU-WF-001",
+        first_name="A", last_name="B",
+        age=14, school="Sc", region="Tunis",
     )
-    assert a.total_score == 30
-    assert a.risk_level == RiskLevel.HIGH
-
-
-@pytest.mark.django_db
-def test_impossible_score_is_rejected(operator, student):
-    """Prompt 3: impossible values raise a validation error, not a crash."""
-
-    assessment = StressAssessment(
-        student=student,
-        operator=operator,
-        academic_pressure=150,
-        social_anxiety=-5,
-        home_environment=20,
+    op = User.objects.create_user(
+        username="op_wf", password="pw",
+        role=Role.OPERATOR, school="Sc",
     )
-    with pytest.raises(ValidationError) as excinfo:
-        assessment.save()
-    errors = excinfo.value.message_dict
-    assert "academic_pressure" in errors
-    assert "social_anxiety" in errors
+    op.sync_groups()
+    return SERSEntry.objects.create(
+        student=s, operator=op,
+        unexcused_absences=0, grade_drop_points=0,
+        disciplinary_flags=0, wellbeing_score=8,
+    )
 
 
-@pytest.mark.django_db
-def test_illegal_transition_is_rejected(high_risk_assessment, supervisor):
-    # High-risk assessments start in ASSESSMENT; going straight to
-    # CLOSED is allowed, but jumping directly to FOLLOW_UP must fail.
+def test_valid_transition(db, entry, supervisor):
+    entry.transition_to(WorkflowState.ASSESSMENT, actor=supervisor)
+    entry.refresh_from_db()
+    assert entry.workflow_state == WorkflowState.ASSESSMENT
+
+
+def test_illegal_transition_raises(db, entry, supervisor):
     with pytest.raises(ValidationError):
-        high_risk_assessment.transition_to(
-            WorkflowState.FOLLOW_UP, actor=supervisor
-        )
+        entry.transition_to(WorkflowState.FOLLOW_UP, actor=supervisor)
 
 
-@pytest.mark.django_db
-def test_legal_transition_logs_event(high_risk_assessment, supervisor):
-    event = high_risk_assessment.transition_to(
-        WorkflowState.INTERVENTION, actor=supervisor
+def test_transition_logged_in_audit(db, entry, supervisor):
+    entry.transition_to(WorkflowState.ASSESSMENT, actor=supervisor)
+    assert CaseEvent.objects.filter(
+        entry=entry,
+        action=CaseEvent.Action.STATE_CHANGE,
+    ).exists()
+
+
+def test_intervention_plan_created_and_completed(db, entry, supervisor):
+    entry.transition_to(WorkflowState.ASSESSMENT, actor=supervisor)
+    entry.transition_to(WorkflowState.INTERVENTION, actor=supervisor)
+    plan = InterventionPlan.objects.create(
+        entry=entry,
+        plan_type=InterventionPlan.PlanType.TUTORING,
+        assigned_to=supervisor,
     )
-    high_risk_assessment.refresh_from_db()
-    assert high_risk_assessment.workflow_state == WorkflowState.INTERVENTION
-    assert event.actor == supervisor
-    assert event.from_state == WorkflowState.ASSESSMENT
-    assert event.to_state == WorkflowState.INTERVENTION
+    plan.mark_completed(actor=supervisor)
+    plan.refresh_from_db()
+    assert plan.status == InterventionPlan.PlanStatus.COMPLETED

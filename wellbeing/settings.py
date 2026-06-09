@@ -1,5 +1,5 @@
 """
-Django settings for the Tunisian Youth Well-being platform.
+Django settings for the Tunisian Student Early-Warning & Well-Being Platform.
 
 This is a university exam project. The SECRET_KEY here is a development
 placeholder only; in a real deployment it must come from the environment
@@ -28,10 +28,28 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_bootstrap5",
+    "rest_framework",
+    "strawberry.django",
     "accounts",
     "cases",
+    "support",
     "dashboard",
+    "gql",
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
+}
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -95,10 +113,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Domain-specific configuration (Track E: explainable decision support).
-# The HIGH_RISK_THRESHOLD can also be overridden per-run by a Supervisor
-# via the ``cases.RiskPolicy`` singleton configured from the dashboard.
-HIGH_RISK_THRESHOLD = int(os.environ.get("HIGH_RISK_THRESHOLD", 75))
+# Domain-specific configuration — Student Engagement Risk Score (SERS).
+SERS_WEIGHTS = {
+    "absence":    int(os.environ.get("SERS_WEIGHT_ABSENCE",    6)),
+    "grade_drop": int(os.environ.get("SERS_WEIGHT_GRADE_DROP", 5)),
+    "behavior":   int(os.environ.get("SERS_WEIGHT_BEHAVIOR",   8)),
+    "wellbeing":  int(os.environ.get("SERS_WEIGHT_WELLBEING",  10)),
+}
+HIGH_RISK_THRESHOLD   = int(os.environ.get("HIGH_RISK_THRESHOLD",   65))
+MEDIUM_RISK_THRESHOLD = int(os.environ.get("MEDIUM_RISK_THRESHOLD", 40))
 
 LOGGING = {
     "version": 1,

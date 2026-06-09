@@ -1,15 +1,30 @@
-"""Shared pytest fixtures for role-based tests."""
+"""Shared pytest fixtures for the Tunisian Student Early-Warning Platform."""
 
 from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.template.context import BaseContext
+
+# Python 3.14 compatibility: BaseContext.__copy__ changed in 3.14.
+def _patched_base_context_copy(self):
+    cls = self.__class__
+    duplicate = cls.__new__(cls)
+    duplicate.__dict__.update(self.__dict__)
+    duplicate.dicts = self.dicts[:]
+    return duplicate
+
+BaseContext.__copy__ = _patched_base_context_copy
 
 from accounts.models import Role
-from cases.models import RiskPolicy, Student, StressAssessment
+from cases.models import SERSEntry, SERSPolicy, Student
 
 User = get_user_model()
 
+
+# ---------------------------------------------------------------------------
+# Role fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def operator(db):
@@ -46,14 +61,24 @@ def program_admin(db):
     return user
 
 
+# ---------------------------------------------------------------------------
+# Cases fixtures
+# ---------------------------------------------------------------------------
+
 @pytest.fixture
-def risk_policy(db):
-    # Uses threshold = 180 (out of 300) so that we can cross it with
-    # three component scores of about 60 in tests.
-    policy, _ = RiskPolicy.objects.get_or_create(pk=1, defaults={"threshold": 180})
-    policy.threshold = 180
-    policy.save()
-    return policy
+def sers_policy(db):
+    p, _ = SERSPolicy.objects.get_or_create(
+        pk=1,
+        defaults={
+            "absence_weight":    6,
+            "grade_drop_weight": 5,
+            "behavior_weight":   8,
+            "wellbeing_weight":  10,
+            "high_threshold":    65,
+            "medium_threshold":  40,
+        },
+    )
+    return p
 
 
 @pytest.fixture
@@ -71,22 +96,24 @@ def student(db):
 
 
 @pytest.fixture
-def low_risk_assessment(db, operator, student, risk_policy):
-    return StressAssessment.objects.create(
+def low_risk_entry(db, operator, student, sers_policy):
+    return SERSEntry.objects.create(
         student=student,
         operator=operator,
-        academic_pressure=10,
-        social_anxiety=10,
-        home_environment=10,
+        unexcused_absences=0,
+        grade_drop_points=0,
+        disciplinary_flags=0,
+        wellbeing_score=9,
     )
 
 
 @pytest.fixture
-def high_risk_assessment(db, operator, student, risk_policy):
-    return StressAssessment.objects.create(
+def high_risk_entry(db, operator, student, sers_policy):
+    return SERSEntry.objects.create(
         student=student,
         operator=operator,
-        academic_pressure=80,
-        social_anxiety=70,
-        home_environment=60,
+        unexcused_absences=8,
+        grade_drop_points=8,
+        disciplinary_flags=3,
+        wellbeing_score=1,
     )

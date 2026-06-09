@@ -1,34 +1,36 @@
-# Problem statement
+# Problem Statement
 
-**Population.** Tunisian middle- and high-school students, ages 11–18,
-attending one of four partner schools across Tunis, Ariana, Sousse and
-Bizerte.
+**Population.** Tunisian middle- and high-school students (ages 12–18) across
+four partner schools in Tunis, Ariana, Sousse, and Bizerte.
 
-**Problem.** Early stress and psychosocial distress signals go
-unnoticed because current school workflows rely on informal notes and
-paper forms. By the time a psychologist is informed, the student may
-already have missed classes for weeks.
+**Problem.** Silent disengagement — rising absences, grade drops, and
+unreported distress — often precedes dropout by months. Current workflows
+rely on informal paper notes; by the time a school counselor is informed,
+the student may already have missed weeks of class.
 
-**Decision maker.** School psychologists (Supervisor role) and the
-national program manager (Admin role). Operators (school staff) are
-the data-entry users.
+**Roles.**
+- **Operator** (Teacher / Frontline staff): enters attendance, grades,
+  behavior notes, well-being check-ins; submits CSV bulk uploads.
+- **Supervisor** (School Counselor / Social Worker): reviews flagged students,
+  validates scores, creates intervention plans, writes follow-up notes.
+- **Admin** (School Director / Program Manager): configures SERS weights and
+  thresholds, manages users, monitors audit logs, exports reports.
 
-**Operational workflow.**
-1. Operator creates a `Student` record and submits a `StressAssessment`
-   (via form or CSV upload).
-2. The rule engine computes the total stress score
-   (`academic_pressure + social_anxiety + home_environment`) and
-   classifies the case as `LOW`, `MEDIUM` or `HIGH` based on the
-   configurable threshold.
-3. Supervisor reviews the case on their queue dashboard, transitions
-   it to `INTERVENTION` and schedules an appointment.
-4. If the appointment is missed, the system logs an automatic
-   reminder on the case timeline.
-5. Supervisor transitions the case to `FOLLOW_UP` or `CLOSED`.
+**Score engine.** A Student Engagement Risk Score (SERS) 0–100 is computed
+from four weighted components:
 
-**Expected value.** Faster detection of high-risk cases, auditable
-follow-up adherence, measurable workflow completion rate.
+    SERS = (absence_weight × unexcused_absences)
+         + (grade_drop_weight × grade_drop_points)
+         + (behavior_weight × disciplinary_flags)
+         + (wellbeing_weight × low_wellbeing_score)
 
-**Validation rule.** A workflow is considered successful when a case
-moves from `INTAKE` to `CLOSED` without any `DENIED` audit entry and
-with at least one documented intervention step.
+The score is fully explainable: each case shows a human-readable breakdown.
+
+**Workflow.**
+
+    INTAKE → ASSESSMENT → INTERVENTION → FOLLOW_UP → CLOSED
+
+Every transition is recorded in an immutable audit log.
+
+**Expected value.** Faster detection of high-risk disengagement, auditable
+intervention adherence, measurable workflow completion rate.

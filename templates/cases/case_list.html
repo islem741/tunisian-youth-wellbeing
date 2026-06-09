@@ -1,10 +1,16 @@
 {% extends "base.html" %}
+
+{% block title %}Cases — Student Early-Warning Platform{% endblock %}
+
 {% block content %}
 <div class="d-flex align-items-center mb-3">
-  <h1 class="h3 mb-0 flex-grow-1">Cases</h1>
-  <a href="{% url 'cases:export_csv' %}?{{ request.GET.urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Export CSV</a>
-  {% if is_operator or is_program_admin %}
-    <a href="{% url 'cases:assessment_create' %}" class="btn btn-primary btn-sm">+ New assessment</a>
+  <h1 class="h3 mb-0 flex-grow-1">SERS Cases</h1>
+  {% if is_supervisor or is_program_admin %}
+    <a href="{% url 'cases:export_csv' %}?{{ request.GET.urlencode }}"
+       class="btn btn-outline-secondary btn-sm me-2">Export CSV</a>
+  {% endif %}
+  {% if can_manage_sers %}
+    <a href="{% url 'cases:entry_create' %}" class="btn btn-primary btn-sm">+ New Entry</a>
   {% endif %}
 </div>
 
@@ -25,30 +31,53 @@
       {% endfor %}
     </select>
   </div>
-  <div class="col-auto"><button class="btn btn-sm btn-outline-primary">Filter</button></div>
+  <div class="col-auto">
+    <input name="school" class="form-control form-control-sm"
+           placeholder="School" value="{{ selected_school }}">
+  </div>
+  <div class="col-auto">
+    <input name="region" class="form-control form-control-sm"
+           placeholder="Governorate" value="{{ selected_region }}">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-primary">Filter</button>
+    <a href="{% url 'cases:list' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+  </div>
 </form>
 
-<table class="table table-sm table-striped align-middle bg-white">
-  <thead>
+<table class="table table-sm table-striped align-middle bg-white shadow-sm">
+  <thead class="table-light">
     <tr>
-      <th>#</th><th>Student</th><th>School</th><th>State</th><th>Risk</th>
-      <th class="text-end">Score</th><th>Operator</th><th>Created</th>
+      <th>#</th>
+      <th>Student</th>
+      <th>School</th>
+      <th>Governorate</th>
+      <th>State</th>
+      <th>Risk</th>
+      <th class="text-end">SERS</th>
+      <th>Period</th>
+      <th>Operator</th>
+      <th>Created</th>
     </tr>
   </thead>
   <tbody>
-    {% for a in assessments %}
-      <tr>
-        <td>{{ a.pk }}</td>
-        <td><a href="{% url 'cases:detail' a.pk %}">{{ a.student.display_name }}</a></td>
-        <td>{{ a.student.school }}</td>
-        <td>{{ a.get_workflow_state_display }}</td>
-        <td><span class="risk-{{ a.risk_level }}">{{ a.get_risk_level_display }}</span></td>
-        <td class="text-end">{{ a.total_score }}</td>
-        <td>{{ a.operator.username }}</td>
-        <td>{{ a.created_at|date:"Y-m-d H:i" }}</td>
-      </tr>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.pk }}</td>
+      <td><a href="{% url 'cases:detail' e.pk %}">{{ e.student.display_name }}</a></td>
+      <td>{{ e.student.school }}</td>
+      <td>{{ e.student.region }}</td>
+      <td><span class="badge bg-secondary">{{ e.get_workflow_state_display }}</span></td>
+      <td><span class="risk-{{ e.risk_level }}">{{ e.get_risk_level_display }}</span></td>
+      <td class="text-end fw-bold">{{ e.sers_score }}</td>
+      <td>{{ e.period_label|default:"—" }}</td>
+      <td>{{ e.operator.username }}</td>
+      <td>{{ e.created_at|date:"Y-m-d" }}</td>
+    </tr>
     {% empty %}
-      <tr><td colspan="8" class="text-center text-muted">No cases match the current filters.</td></tr>
+    <tr>
+      <td colspan="10" class="text-center text-muted py-3">No cases match the current filters.</td>
+    </tr>
     {% endfor %}
   </tbody>
 </table>

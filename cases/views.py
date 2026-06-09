@@ -1,22 +1,11 @@
-"""Views for the case-management workflow.
-
-The views are deliberately thin wrappers around the models: the
-business logic (risk scoring, state machine, missed-appointment
-reminders) lives on ``cases.models`` so that it can be exercised by
-the test suite without going through HTTP.
-"""
-
 from __future__ import annotations
 
 import csv
-import io
 import logging
-from typing import Iterable
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -25,367 +14,279 @@ from accounts.models import Role
 from accounts.permissions import role_required
 
 from .forms import (
-    AppointmentForm,
-    CaseTransitionForm,
-    RiskPolicyForm,
-    StressAssessmentCSVUploadForm,
-    StressAssessmentForm,
-    StudentForm,
+    CaseTransitionForm, InterventionPlanForm,
+    SERSCSVUploadForm, SERSEntryForm, SERSPolicyForm, StudentForm,
 )
 from .models import (
-    ALLOWED_TRANSITIONS,
-    Appointment,
-    CaseEvent,
-    RiskLevel,
-    RiskPolicy,
-    Student,
-    StressAssessment,
-    WorkflowState,
+    ALLOWED_TRANSITIONS, CaseEvent, InterventionPlan,
+    RiskLevel, SERSEntry, SERSPolicy, Student, WorkflowState,
 )
+from .services import ingest_sers_csv
 
 logger = logging.getLogger("wellbeing.cases")
 
 
 # ---------------------------------------------------------------------------
-# Role-scoped querysets ------------------------------------------------------
+# Helpers
 # ---------------------------------------------------------------------------
-def _scoped_assessments(user) -> "models.QuerySet[StressAssessment]":  # type: ignore[name-defined]
-    qs = StressAssessment.objects.select_related("student", "operator")
+
+def _scoped_entries(user):
+    """Return a QuerySet scoped to what this user may see."""
+    qs = SERSEntry.objects.select_related("student", "operator")
     if user.is_program_admin or user.is_supervisor:
         return qs
     if user.is_operator:
-        # Operators see only their own submissions (and optionally their
-        # school's assessments). We implement both rules with OR so the
-        # collaboration still works across shifts.
-        school = user.school or None
         base = qs.filter(operator=user)
-        if school:
-            base = base | qs.filter(student__school=school)
-        return base.distinct()
+        if user.school:
+            base = (base | qs.filter(student__school=user.school)).distinct()
+        return base
     return qs.none()
 
 
 # ---------------------------------------------------------------------------
-# Listing and detail ---------------------------------------------------------
+# Case list & detail
 # ---------------------------------------------------------------------------
+
 @login_required
 def case_list(request):
-    qs = _scoped_assessments(request.user).order_by("-created_at")
-    state = request.GET.get("state") or ""
-    risk = request.GET.get("risk") or ""
-    if state:
-        qs = qs.filter(workflow_state=state)
-    if risk:
-        qs = qs.filter(risk_level=risk)
-    return render(
-        request,
-        "cases/case_list.html",
-        {
-            "assessments": qs[:500],
-            "state_choices": WorkflowState.choices,
-            "risk_choices": RiskLevel.choices,
-            "selected_state": state,
-            "selected_risk": risk,
-        },
-    )
+    qs = _scoped_entries(request.user).order_by("-created_at")
+    state    = request.GET.get("state", "")
+    risk     = request.GET.get("risk", "")
+    school_q = request.GET.get("school", "")
+    region_q = request.GET.get("region", "")
+    if state:    qs = qs.filter(workflow_state=state)
+    if risk:     qs = qs.filter(risk_level=risk)
+    if school_q: qs = qs.filter(student__school__icontains=school_q)
+    if region_q: qs = qs.filter(student__region__icontains=region_q)
+    return render(request, "cases/case_list.html", {
+        "entries":         qs,
+        "state_choices":   WorkflowState.choices,
+        "risk_choices":    RiskLevel.choices,
+        "selected_state":  state,
+        "selected_risk":   risk,
+        "selected_school": school_q,
+        "selected_region": region_q,
+    })
 
 
 @login_required
-def case_detail(request, pk: int):
-    assessment = get_object_or_404(_scoped_assessments(request.user), pk=pk)
-    allowed = [
-        (s, WorkflowState(s).label)
-        for s in ALLOWED_TRANSITIONS.get(assessment.workflow_state, set())
+def case_detail(request, pk):
+    # Fetch the entry without scoping first so we can log security events
+    # for out-of-scope access attempts before raising 403.
+    from django.shortcuts import get_object_or_404
+    full_qs = SERSEntry.objects.select_related("student", "operator")
+    entry = get_object_or_404(full_qs, pk=pk)
+
+    # Operators may only see entries for their own submissions or their school.
+    if request.user.is_operator:
+        in_scope = (
+            entry.operator == request.user
+            or entry.student.school == request.user.school
+        )
+        if not in_scope:
+            CaseEvent.objects.create(
+                entry=entry, actor=request.user,
+                action=CaseEvent.Action.SECURITY,
+                detail=(
+                    f"Operator {request.user.username} attempted to view "
+                    f"entry #{pk} outside their scope."
+                ),
+            )
+            raise PermissionDenied("You may not access this case.")
+    current  = WorkflowState(entry.workflow_state)
+    allowed  = [
+        (v, l) for v, l in WorkflowState.choices
+        if v in ALLOWED_TRANSITIONS[current.value]
     ]
-    transition_form = CaseTransitionForm(allowed_states=allowed)
-    appointment_form = AppointmentForm()
-    return render(
-        request,
-        "cases/case_detail.html",
-        {
-            "assessment": assessment,
-            "events": assessment.events.select_related("actor")[:50],
-            "appointments": assessment.appointments.all(),
-            "transition_form": transition_form,
-            "appointment_form": appointment_form,
-        },
-    )
+    events   = entry.events.select_related("actor").order_by("-created_at")
+    plans    = entry.interventions.select_related("assigned_to").order_by("due_date")
+    transition_form   = CaseTransitionForm(allowed_states=allowed)
+    intervention_form = InterventionPlanForm()
+    return render(request, "cases/case_detail.html", {
+        "entry":              entry,
+        "events":             events,
+        "plans":              plans,
+        "transition_form":    transition_form,
+        "intervention_form":  intervention_form,
+        "allowed_transitions": allowed,
+    })
 
 
 # ---------------------------------------------------------------------------
-# Operator actions -----------------------------------------------------------
+# Student
 # ---------------------------------------------------------------------------
+
 @role_required(Role.OPERATOR, Role.ADMIN)
 def student_create(request):
-    if request.method == "POST":
-        form = StudentForm(request.POST)
-        if form.is_valid():
-            student = form.save()
-            messages.success(request, f"Student {student.display_name} added.")
-            return redirect("cases:assessment_create")
-    else:
-        form = StudentForm()
+    form = StudentForm(request.POST or None)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Student record created.")
+        return redirect("cases:list")
     return render(request, "cases/student_form.html", {"form": form})
 
 
-@role_required(Role.OPERATOR, Role.ADMIN)
-def assessment_create(request):
-    if request.method == "POST":
-        form = StressAssessmentForm(request.POST)
-        if form.is_valid():
-            try:
-                with transaction.atomic():
-                    assessment = form.save(commit=False)
-                    assessment.operator = request.user
-                    assessment.save()
-                    CaseEvent.objects.create(
-                        assessment=assessment,
-                        actor=request.user,
-                        action=CaseEvent.Action.INTAKE,
-                        to_state=assessment.workflow_state,
-                        detail=(
-                            f"Intake recorded. Risk level: "
-                            f"{assessment.get_risk_level_display()}."
-                        ),
-                    )
-            except ValidationError as exc:
-                for field, errs in exc.message_dict.items():
-                    for err in errs:
-                        form.add_error(field, err)
-            else:
-                messages.success(
-                    request,
-                    f"Assessment saved. Risk level: "
-                    f"{assessment.get_risk_level_display()}.",
-                )
-                return redirect("cases:detail", pk=assessment.pk)
-    else:
-        form = StressAssessmentForm()
-    return render(request, "cases/assessment_form.html", {"form": form})
-
+# ---------------------------------------------------------------------------
+# SERS Entry (single form)
+# ---------------------------------------------------------------------------
 
 @role_required(Role.OPERATOR, Role.ADMIN)
-def assessment_upload_csv(request):
-    """Bulk-upload assessments from a CSV file.
-
-    Bad rows are collected and reported back; the whole upload is
-    aborted so the user doesn't end up with a half-loaded dataset.
-    """
-
-    errors: list[str] = []
-    created = 0
-    if request.method == "POST":
-        form = StressAssessmentCSVUploadForm(request.POST, request.FILES)
-        if form.is_valid():
-            raw = form.cleaned_data["csv_file"].read().decode("utf-8-sig")
-            reader = csv.DictReader(io.StringIO(raw))
-            required = {
-                "external_id",
-                "academic_pressure",
-                "social_anxiety",
-                "home_environment",
-            }
-            missing = required.difference(reader.fieldnames or [])
-            if missing:
-                errors.append(
-                    "CSV is missing required column(s): " + ", ".join(sorted(missing))
-                )
-            else:
-                try:
-                    with transaction.atomic():
-                        for i, row in enumerate(reader, start=2):
-                            err = _create_assessment_from_row(row, request.user)
-                            if err:
-                                errors.append(f"Row {i}: {err}")
-                            else:
-                                created += 1
-                        if errors:
-                            raise _Abort()
-                except _Abort:
-                    logger.warning(
-                        "CSV upload aborted by %s: %s errors", request.user, len(errors)
-                    )
-                    created = 0
-    else:
-        form = StressAssessmentCSVUploadForm()
-    if request.method == "POST" and not errors:
-        messages.success(request, f"Uploaded {created} assessments.")
-        return redirect("cases:list")
-    return render(
-        request,
-        "cases/assessment_upload.html",
-        {"form": form, "errors": errors, "created": created},
-    )
-
-
-class _Abort(Exception):
-    """Internal sentinel used to roll back a CSV upload on first error."""
-
-
-def _create_assessment_from_row(row: dict, user) -> str:
-    ext_id = (row.get("external_id") or "").strip()
-    if not ext_id:
-        return "missing external_id."
-    try:
-        student = Student.objects.get(external_id=ext_id)
-    except Student.DoesNotExist:
-        return f"unknown student '{ext_id}'."
-    try:
-        ap = int(row["academic_pressure"])
-        sa = int(row["social_anxiety"])
-        he = int(row["home_environment"])
-    except (KeyError, TypeError, ValueError):
-        return "score columns must be integers."
-    try:
-        assessment = StressAssessment(
-            student=student,
-            operator=user,
-            academic_pressure=ap,
-            social_anxiety=sa,
-            home_environment=he,
-            notes=(row.get("notes") or "").strip(),
-        )
-        assessment.save()
-    except ValidationError as exc:
-        return "; ".join(
-            f"{field}: {'; '.join(errs)}" for field, errs in exc.message_dict.items()
-        )
-    CaseEvent.objects.create(
-        assessment=assessment,
-        actor=user,
-        action=CaseEvent.Action.INTAKE,
-        to_state=assessment.workflow_state,
-        detail=(
-            "Intake from CSV upload."
-            f" Risk level: {assessment.get_risk_level_display()}."
-        ),
-    )
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# Supervisor / admin actions -------------------------------------------------
-# ---------------------------------------------------------------------------
-@role_required(Role.SUPERVISOR, Role.ADMIN)
-def case_transition(request, pk: int):
-    assessment = get_object_or_404(StressAssessment, pk=pk)
-    allowed = [
-        (s, WorkflowState(s).label)
-        for s in ALLOWED_TRANSITIONS.get(assessment.workflow_state, set())
-    ]
-    form = CaseTransitionForm(request.POST or None, allowed_states=allowed)
-    if request.method == "POST":
-        if form.is_valid():
-            try:
-                assessment.transition_to(
-                    form.cleaned_data["to_state"],
-                    actor=request.user,
-                    reason=form.cleaned_data.get("reason", ""),
-                )
-            except ValidationError as exc:
-                messages.error(request, str(exc))
-                CaseEvent.objects.create(
-                    assessment=assessment,
-                    actor=request.user,
-                    action=CaseEvent.Action.DENIED,
-                    detail=str(exc),
-                )
-            else:
-                messages.success(request, "Case state updated.")
-        else:
-            messages.error(request, "Invalid transition request.")
-    return redirect("cases:detail", pk=assessment.pk)
-
-
-@role_required(Role.SUPERVISOR, Role.ADMIN)
-def appointment_create(request, pk: int):
-    assessment = get_object_or_404(StressAssessment, pk=pk)
-    form = AppointmentForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        appt = form.save(commit=False)
-        appt.assessment = assessment
-        appt.scheduled_by = request.user
-        appt.save()
+def entry_create(request):
+    form = SERSEntryForm(request.POST or None)
+    if form.is_valid():
+        entry = form.save(commit=False)
+        entry.operator = request.user
+        entry.save()
         CaseEvent.objects.create(
-            assessment=assessment,
-            actor=request.user,
-            action=CaseEvent.Action.APPOINTMENT,
+            entry=entry, actor=request.user,
+            action=CaseEvent.Action.INTAKE,
+            to_state=entry.workflow_state,
             detail=(
-                f"Appointment scheduled for {appt.scheduled_for:%Y-%m-%d %H:%M}."
+                f"Manual entry. SERS={entry.sers_score} "
+                f"({entry.get_risk_level_display()}). "
+                f"{entry.risk_explanation}"
             ),
         )
-        messages.success(request, "Appointment scheduled.")
-    elif request.method == "POST":
-        messages.error(request, "Invalid appointment details.")
+        messages.success(
+            request,
+            f"Entry created. SERS score: {entry.sers_score} "
+            f"({entry.get_risk_level_display()}). {entry.risk_explanation}",
+        )
+        return redirect("cases:detail", pk=entry.pk)
+    return render(request, "cases/entry_form.html", {"form": form})
+
+
+# ---------------------------------------------------------------------------
+# CSV bulk upload
+# ---------------------------------------------------------------------------
+
+@role_required(Role.OPERATOR, Role.ADMIN)
+def entry_upload_csv(request):
+    form   = SERSCSVUploadForm(request.POST or None, request.FILES or None)
+    result = None
+    if request.method == "POST" and form.is_valid():
+        result = ingest_sers_csv(
+            request.FILES["csv_file"],
+            operator=request.user,
+            period_label=form.cleaned_data.get("period_label", ""),
+        )
+        if result.created:
+            messages.success(request, f"{result.created} entries imported successfully.")
+        if result.errors:
+            messages.warning(
+                request,
+                f"{result.skipped} row(s) rejected. See details below.",
+            )
+    return render(request, "cases/entry_upload.html", {"form": form, "result": result})
+
+
+# ---------------------------------------------------------------------------
+# Workflow transition
+# ---------------------------------------------------------------------------
+
+@role_required(Role.SUPERVISOR, Role.ADMIN)
+def case_transition(request, pk):
+    entry   = get_object_or_404(SERSEntry, pk=pk)
+    current = WorkflowState(entry.workflow_state)
+    allowed = [
+        (v, l) for v, l in WorkflowState.choices
+        if v in ALLOWED_TRANSITIONS[current.value]
+    ]
+    form = CaseTransitionForm(request.POST or None, allowed_states=allowed)
+    if form.is_valid():
+        try:
+            entry.transition_to(
+                form.cleaned_data["to_state"],
+                actor=request.user,
+                reason=form.cleaned_data.get("reason", ""),
+            )
+            messages.success(request, "Case state updated.")
+        except ValidationError as exc:
+            CaseEvent.objects.create(
+                entry=entry, actor=request.user,
+                action=CaseEvent.Action.DENIED,
+                detail=str(exc),
+            )
+            messages.error(request, str(exc))
     return redirect("cases:detail", pk=pk)
 
 
-@role_required(Role.SUPERVISOR, Role.ADMIN)
-def appointment_mark_missed(request, pk: int):
-    appointment = get_object_or_404(Appointment, pk=pk)
-    if request.method != "POST":
-        raise PermissionDenied("POST required.")
-    appointment.mark_missed(actor=request.user)
-    messages.warning(
-        request,
-        "Appointment marked as missed; automatic reminder queued.",
-    )
-    return redirect("cases:detail", pk=appointment.assessment_id)
-
+# ---------------------------------------------------------------------------
+# Intervention Plan
+# ---------------------------------------------------------------------------
 
 @role_required(Role.SUPERVISOR, Role.ADMIN)
-def risk_policy_edit(request):
-    policy = RiskPolicy.current()
-    form = RiskPolicyForm(request.POST or None, instance=policy)
-    if request.method == "POST" and form.is_valid():
-        policy = form.save(commit=False)
-        policy.updated_by = request.user
-        policy.save()
-        messages.success(
-            request,
-            f"High-Risk threshold updated to {policy.threshold}.",
+def intervention_create(request, entry_pk):
+    entry = get_object_or_404(SERSEntry, pk=entry_pk)
+    form  = InterventionPlanForm(request.POST or None)
+    if form.is_valid():
+        plan = form.save(commit=False)
+        plan.entry = entry
+        plan.save()
+        CaseEvent.objects.create(
+            entry=entry, actor=request.user,
+            action=CaseEvent.Action.INTERVENTION,
+            detail=(
+                f"Intervention plan created: "
+                f"{plan.get_plan_type_display()}, due {plan.due_date}."
+            ),
         )
-        return redirect("cases:risk_policy")
-    return render(request, "cases/risk_policy.html", {"form": form, "policy": policy})
+        messages.success(request, "Intervention plan created.")
+        return redirect("cases:detail", pk=entry_pk)
+    return render(request, "cases/intervention_form.html",
+                  {"form": form, "entry": entry})
 
 
-@login_required
+@role_required(Role.SUPERVISOR, Role.ADMIN)
+def intervention_complete(request, plan_pk):
+    plan = get_object_or_404(InterventionPlan, pk=plan_pk)
+    if request.method == "POST":
+        plan.mark_completed(actor=request.user)
+        messages.success(request, "Intervention marked completed.")
+    return redirect("cases:detail", pk=plan.entry_id)
+
+
+# ---------------------------------------------------------------------------
+# SERS Policy (Admin only)
+# ---------------------------------------------------------------------------
+
+@role_required(Role.ADMIN)
+def sers_policy_edit(request):
+    policy = SERSPolicy.current()
+    form   = SERSPolicyForm(request.POST or None, instance=policy)
+    if form.is_valid():
+        obj = form.save(commit=False)
+        obj.updated_by = request.user
+        obj.save()
+        messages.success(request, "SERS policy updated.")
+        return redirect("cases:sers_policy")
+    return render(request, "cases/sers_policy.html", {"form": form, "policy": policy})
+
+
+# ---------------------------------------------------------------------------
+# CSV export
+# ---------------------------------------------------------------------------
+
+@role_required(Role.SUPERVISOR, Role.ADMIN)
 def export_cases_csv(request):
-    qs = _scoped_assessments(request.user)
+    qs = _scoped_entries(request.user).order_by("-created_at")
     response = HttpResponse(content_type="text/csv")
-    response["Content-Disposition"] = (
-        f'attachment; filename="cases-{timezone.now():%Y%m%d%H%M}.csv"'
-    )
+    response["Content-Disposition"] = 'attachment; filename="sers_cases.csv"'
     writer = csv.writer(response)
-    writer.writerow(
-        [
-            "case_id",
-            "student",
-            "school",
-            "region",
-            "workflow_state",
-            "risk_level",
-            "total_score",
-            "academic_pressure",
-            "social_anxiety",
-            "home_environment",
-            "created_at",
-        ]
-    )
-    for a in qs:
-        writer.writerow(
-            [
-                a.pk,
-                a.student.display_name,
-                a.student.school,
-                a.student.region,
-                a.workflow_state,
-                a.risk_level,
-                a.total_score,
-                a.academic_pressure,
-                a.social_anxiety,
-                a.home_environment,
-                a.created_at.isoformat(),
-            ]
-        )
+    writer.writerow([
+        "id", "student_id", "student_name", "school", "region",
+        "sers_score", "risk_level", "workflow_state",
+        "absences", "grade_drop", "behavior", "wellbeing",
+        "period", "operator", "created_at",
+    ])
+    for e in qs:
+        writer.writerow([
+            e.pk, e.student.external_id, e.student.display_name,
+            e.student.school, e.student.region,
+            e.sers_score, e.risk_level, e.workflow_state,
+            e.unexcused_absences, e.grade_drop_points,
+            e.disciplinary_flags, e.wellbeing_score,
+            e.period_label, e.operator.username,
+            e.created_at.strftime("%Y-%m-%d %H:%M"),
+        ])
     return response

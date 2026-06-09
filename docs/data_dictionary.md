@@ -1,61 +1,62 @@
-# Data dictionary
+# Data Dictionary
 
-All values in the bundled database are **synthetic**, generated with
-`Faker` in `accounts/management/commands/seed_demo_data.py`.
+## SERSPolicy
 
-## `accounts.User`
+| Field              | Type           | Notes                              |
+|--------------------|----------------|-------------------------------------|
+| absence_weight     | PositiveSmall  | Multiplier for unexcused absences  |
+| grade_drop_weight  | PositiveSmall  | Multiplier for grade drop points   |
+| behavior_weight    | PositiveSmall  | Multiplier for disciplinary flags  |
+| wellbeing_weight   | PositiveSmall  | Multiplier for inverted well-being |
+| high_threshold     | PositiveSmall  | SERS ≥ this → HIGH                 |
+| medium_threshold   | PositiveSmall  | SERS ≥ this (< high) → MEDIUM      |
 
-| Field       | Type      | Notes                                         |
-|-------------|-----------|-----------------------------------------------|
-| username    | CharField | login, unique                                 |
-| role        | CharField | one of `operator`, `supervisor`, `admin`      |
-| school      | CharField | optional, scopes Operator visibility          |
-| region      | CharField | optional administrative region                |
+## Student
 
-## `cases.Student`
+| Field        | Type    | Notes                              |
+|--------------|---------|-------------------------------------|
+| external_id  | Char    | Synthetic opaque identifier        |
+| first_name   | Char    | —                                  |
+| last_name    | Char    | —                                  |
+| age          | Integer | 10–20                              |
+| gender       | Char    | F / M / O                          |
+| grade        | Char    | e.g. "9ème", "2ème Sec"            |
+| school       | Char    | School name                        |
+| region       | Char    | Tunisian governorate               |
 
-| Field       | Type      | Range / notes                                 |
-|-------------|-----------|-----------------------------------------------|
-| external_id | CharField | synthetic opaque id, unique                   |
-| first_name  | CharField | synthetic                                     |
-| last_name   | CharField | synthetic                                     |
-| age         | int       | 6–25, validated                               |
-| gender      | CharField | `F` / `M` / `O`                               |
-| grade       | CharField | free text                                     |
-| school      | CharField | one of the four partner schools               |
-| region      | CharField | Tunis, Ariana, Sousse, Bizerte                |
+## SERSEntry
 
-## `cases.StressAssessment`
+| Field              | Type           | Notes                              |
+|--------------------|----------------|-------------------------------------|
+| student            | FK → Student   | —                                  |
+| operator           | FK → User      | Who submitted                      |
+| period_label       | Char           | e.g. "Week 12 / 2025"              |
+| unexcused_absences | PositiveSmall  | 0–30                               |
+| grade_drop_points  | PositiveSmall  | 0–20                               |
+| disciplinary_flags | PositiveSmall  | 0–10                               |
+| wellbeing_score    | PositiveSmall  | 1–10 (1=worst)                     |
+| sers_score         | PositiveSmall  | Computed 0–100, set on save        |
+| risk_level         | Char           | low / medium / high                |
+| risk_explanation   | Text           | Human-readable score breakdown     |
+| workflow_state     | Char           | intake/assessment/intervention/... |
 
-| Field              | Type                         | Range / notes |
-|--------------------|------------------------------|---------------|
-| student            | FK → Student                 |               |
-| operator           | FK → User (Operator)         |               |
-| academic_pressure  | PositiveSmallIntegerField    | 0–100         |
-| social_anxiety     | PositiveSmallIntegerField    | 0–100         |
-| home_environment   | PositiveSmallIntegerField    | 0–100         |
-| total_score        | computed                     | 0–300         |
-| workflow_state     | CharField                    | see state machine |
-| risk_level         | CharField                    | `low`/`medium`/`high` |
-| risk_explanation   | TextField                    | human-readable reason |
+## InterventionPlan
 
-## `cases.RiskPolicy`
+| Field       | Type           | Notes                              |
+|-------------|----------------|-------------------------------------|
+| entry       | FK → SERSEntry | —                                  |
+| plan_type   | Char           | parent_meeting/tutoring/etc.       |
+| assigned_to | FK → User      | Supervisor responsible             |
+| due_date    | Date           | —                                  |
+| status      | Char           | pending/active/completed/escalated |
 
-Singleton row with the current High-Risk threshold (integer, 1–300).
-Default = 75 out of 300 — adjustable by any Supervisor or Admin.
+## CaseEvent (audit log — immutable)
 
-## `cases.Appointment`
-
-| Field          | Type      | Notes                                   |
-|----------------|-----------|-----------------------------------------|
-| assessment     | FK        |                                         |
-| scheduled_for  | DateTime  |                                         |
-| scheduled_by   | FK → User |                                         |
-| status         | CharField | `scheduled` / `completed` / `missed` / `cancelled` |
-| notes          | TextField |                                         |
-
-## `cases.CaseEvent`
-
-Immutable audit entries. Actions: `intake`, `state_change`,
-`appointment`, `reminder`, `note`, `denied`. Used to render the case
-timeline and to compute the "Data validation pass rate" KPI.
+| Field      | Type           | Notes                              |
+|------------|----------------|-------------------------------------|
+| entry      | FK → SERSEntry | —                                  |
+| actor      | FK → User      | Null for system events             |
+| action     | Char           | intake/state_change/security/etc.  |
+| from_state | Char           | Previous workflow state            |
+| to_state   | Char           | New workflow state                 |
+| detail     | Text           | Human-readable description         |

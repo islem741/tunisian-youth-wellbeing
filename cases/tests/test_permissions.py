@@ -1,78 +1,92 @@
-"""Tests for role-based access control (Prompt 5 #1 and #2)."""
-
-from __future__ import annotations
-
 import pytest
+from django.contrib.auth import get_user_model
 from django.urls import reverse
-from django.utils import timezone
-from datetime import timedelta
 
-from cases.models import Appointment, WorkflowState
+from accounts.models import Role
+from cases.models import CaseEvent, SERSEntry, SERSPolicy, Student
 
-
-@pytest.mark.django_db
-def test_operator_cannot_change_workflow_state(client, operator, high_risk_assessment):
-    client.force_login(operator)
-    url = reverse("cases:transition", args=[high_risk_assessment.pk])
-    resp = client.post(url, {"to_state": WorkflowState.INTERVENTION, "reason": "x"})
-    assert resp.status_code == 403
+User = get_user_model()
 
 
-@pytest.mark.django_db
-def test_operator_cannot_mark_appointment_missed(client, operator, supervisor, high_risk_assessment):
-    appt = Appointment.objects.create(
-        assessment=high_risk_assessment,
-        scheduled_for=timezone.now() - timedelta(days=1),
-        scheduled_by=supervisor,
+@pytest.fixture
+def supervisor(db):
+    u = User.objects.create_user(
+        username="sup_perm", password="pw", role=Role.SUPERVISOR,
     )
+    u.sync_groups()
+    return u
+
+
+@pytest.fixture
+def operator(db):
+    u = User.objects.create_user(
+        username="op_perm", password="pw",
+        role=Role.OPERATOR, school="School A",
+    )
+    u.sync_groups()
+    return u
+
+
+@pytest.fixture
+def other_operator(db):
+    u = User.objects.create_user(
+        username="op_other", password="pw",
+        role=Role.OPERATOR, school="School B",
+    )
+    u.sync_groups()
+    return u
+
+
+@pytest.fixture
+def policy(db):
+    p, _ = SERSPolicy.objects.get_or_create(
+        pk=1,
+        defaults={"high_threshold": 65, "medium_threshold": 40},
+    )
+    return p
+
+
+@pytest.fixture
+def entry(db, operator, policy):
+    s = Student.objects.create(
+        external_id="STU-PERM-001",
+        first_name="A", last_name="B",
+        age=14, school="School A", region="Tunis",
+    )
+    return SERSEntry.objects.create(
+        student=s, operator=operator,
+        unexcused_absences=0, grade_drop_points=0,
+        disciplinary_flags=0, wellbeing_score=8,
+    )
+
+
+def test_operator_cannot_access_other_school_case(db, other_operator, entry, client):
+    client.force_login(other_operator)
+    response = client.get(reverse("cases:detail", args=[entry.pk]))
+    assert response.status_code == 403
+
+
+def test_security_event_logged_on_unauthorized_access(db, other_operator, entry, client):
+    client.force_login(other_operator)
+    client.get(reverse("cases:detail", args=[entry.pk]))
+    assert CaseEvent.objects.filter(
+        action=CaseEvent.Action.SECURITY, entry=entry,
+    ).exists()
+
+
+def test_operator_cannot_view_sers_policy(db, operator, client):
     client.force_login(operator)
-    url = reverse("cases:appointment_miss", args=[appt.pk])
-    resp = client.post(url)
-    assert resp.status_code == 403
-    appt.refresh_from_db()
-    assert appt.status == Appointment.Status.SCHEDULED
+    response = client.get(reverse("cases:sers_policy"))
+    assert response.status_code == 403
 
 
-@pytest.mark.django_db
-def test_operator_cannot_edit_risk_policy(client, operator):
-    client.force_login(operator)
-    resp = client.post(reverse("cases:risk_policy"), {"threshold": 50})
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
-def test_supervisor_can_transition(client, supervisor, high_risk_assessment):
+def test_supervisor_cannot_create_entry(db, supervisor, client):
     client.force_login(supervisor)
-    url = reverse("cases:transition", args=[high_risk_assessment.pk])
-    resp = client.post(
-        url, {"to_state": WorkflowState.INTERVENTION, "reason": "escalate"}
-    )
-    # Redirects back to case detail on success.
-    assert resp.status_code == 302
-    high_risk_assessment.refresh_from_db()
-    assert high_risk_assessment.workflow_state == WorkflowState.INTERVENTION
+    response = client.get(reverse("cases:entry_create"))
+    assert response.status_code == 403
 
 
-@pytest.mark.django_db
-def test_unauthenticated_is_redirected_to_login(client):
-    resp = client.get(reverse("cases:list"))
-    assert resp.status_code == 302
-    assert "/accounts/login/" in resp["Location"]
-
-
-@pytest.mark.django_db
-def test_assessment_post_with_bad_values_returns_form_error(client, operator, student):
-    client.force_login(operator)
-    url = reverse("cases:assessment_create")
-    resp = client.post(url, {
-        "student": student.pk,
-        "academic_pressure": 150,
-        "social_anxiety": -5,
-        "home_environment": 30,
-        "notes": "",
-    })
-    # The form re-renders with a 200 and an error message, the database
-    # stays unchanged (failure-recovery evidence).
-    assert resp.status_code == 200
-    assert b"Score must be an integer between 0 and 100" in resp.content or \
-        b"Ensure this value" in resp.content
+def test_supervisor_can_view_case(db, supervisor, entry, client):
+    client.force_login(supervisor)
+    response = client.get(reverse("cases:detail", args=[entry.pk]))
+    assert response.status_code == 200

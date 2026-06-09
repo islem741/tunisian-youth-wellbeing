@@ -1,71 +1,89 @@
 {% extends "base.html" %}
+
+{% block title %}Supervisor Queue{% endblock %}
+
 {% block content %}
-<h1 class="h3 mb-3">Supervisor queue</h1>
-<p class="text-muted">
-  Students currently in <strong>Assessment</strong> or
-  <strong>Intervention Planning</strong>. Current High-Risk threshold:
-  <strong>{{ policy.threshold }}</strong>.
-  <a href="{% url 'cases:risk_policy' %}">Adjust</a>.
-</p>
+<h1 class="h3 mb-4">Supervisor Case Queue</h1>
 
-<div class="row g-3 mb-4">
-  <div class="col-md-6">
-    <div class="card kpi-card"><div class="card-body">
-      <div class="label">High-risk cases awaiting action</div>
-      <div class="value">{{ high_risk.count }}</div>
-    </div></div>
-  </div>
-  <div class="col-md-6">
-    <div class="card kpi-card"><div class="card-body">
-      <div class="label">Missed appointments</div>
-      <div class="value">{{ missed_appointments|length }}</div>
-    </div></div>
-  </div>
+<div class="alert alert-warning d-flex align-items-center mb-4">
+  <strong class="me-2">High-risk cases requiring action:</strong>
+  {{ high_risk.count }}
 </div>
 
-<div class="card mb-3">
-  <div class="card-body">
-    <h2 class="h5">Cases</h2>
-    <table class="table table-sm align-middle mb-0">
-      <thead>
-        <tr><th>#</th><th>Student</th><th>School</th><th>Risk</th><th class="text-end">Score</th><th>State</th><th>Why flagged</th></tr>
-      </thead>
-      <tbody>
-        {% for a in assessments %}
-          <tr>
-            <td>{{ a.pk }}</td>
-            <td><a href="{% url 'cases:detail' a.pk %}">{{ a.student.display_name }}</a></td>
-            <td>{{ a.student.school }}</td>
-            <td><span class="risk-{{ a.risk_level }}">{{ a.get_risk_level_display }}</span></td>
-            <td class="text-end">{{ a.total_score }}</td>
-            <td>{{ a.get_workflow_state_display }}</td>
-            <td class="small text-muted">{{ a.risk_explanation }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="7" class="text-center text-muted">Nothing to review right now.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+<h5 class="mb-2">Cases in Assessment / Intervention</h5>
+<table class="table table-sm table-striped align-middle bg-white shadow-sm mb-5">
+  <thead class="table-light">
+    <tr>
+      <th>#</th>
+      <th>Student</th>
+      <th>School</th>
+      <th>State</th>
+      <th>Risk</th>
+      <th class="text-end">SERS</th>
+      <th>Period</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.pk }}</td>
+      <td><a href="{% url 'cases:detail' e.pk %}">{{ e.student.display_name }}</a></td>
+      <td>{{ e.student.school }}</td>
+      <td><span class="badge bg-secondary">{{ e.get_workflow_state_display }}</span></td>
+      <td><span class="risk-{{ e.risk_level }}">{{ e.get_risk_level_display }}</span></td>
+      <td class="text-end fw-bold">{{ e.sers_score }}</td>
+      <td>{{ e.period_label|default:"—" }}</td>
+      <td>
+        <a href="{% url 'cases:detail' e.pk %}" class="btn btn-sm btn-outline-primary">Review</a>
+      </td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="8" class="text-center text-muted py-3">No cases in queue.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
-<div class="card">
-  <div class="card-body">
-    <h2 class="h5">Recent missed appointments</h2>
-    {% if missed_appointments %}
-    <ul class="list-unstyled mb-0">
-      {% for appt in missed_appointments %}
-        <li>
-          <a href="{% url 'cases:detail' appt.assessment_id %}">
-            Case #{{ appt.assessment_id }} — {{ appt.assessment.student.display_name }}
-          </a>
-          · missed on {{ appt.scheduled_for|date:"Y-m-d H:i" }}
-        </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-      <p class="text-muted mb-0">No missed appointments.</p>
-    {% endif %}
-  </div>
-</div>
+<h5 class="mb-2">Pending / Active Intervention Plans</h5>
+<table class="table table-sm align-middle bg-white shadow-sm">
+  <thead class="table-light">
+    <tr>
+      <th>Student</th>
+      <th>Type</th>
+      <th>Assigned to</th>
+      <th>Due</th>
+      <th>Status</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for plan in overdue_plans %}
+    <tr>
+      <td>
+        <a href="{% url 'cases:detail' plan.entry.pk %}">
+          {{ plan.entry.student.display_name }}
+        </a>
+      </td>
+      <td>{{ plan.get_plan_type_display }}</td>
+      <td>{{ plan.assigned_to.get_full_name }}</td>
+      <td>{{ plan.due_date }}</td>
+      <td>
+        <span class="badge bg-warning text-dark">{{ plan.get_status_display }}</span>
+      </td>
+      <td>
+        <form method="post" action="{% url 'cases:intervention_complete' plan.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-outline-success">Complete</button>
+        </form>
+      </td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="6" class="text-center text-muted py-3">No pending plans.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 {% endblock %}

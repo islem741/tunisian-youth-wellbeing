@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Counselor Queue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="mb-0">My Escalation Queue</h2>
+  <span class="badge bg-warning text-dark fs-6">{{ pending_sessions|length }} pending</span>
+</div>
+
+{% if pending_sessions %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Youth</th>
+          <th>Session date</th>
+          <th>Notes</th>
+          <th>Escalated by</th>
+          <th>Escalated at</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for session in pending_sessions %}
+          <tr>
+            <td>
+              <a href="{% url 'support:youth_detail' youth_pk=session.assignment.youth.pk %}">
+                {{ session.assignment.youth.get_full_name|default:session.assignment.youth.username }}
+              </a>
+            </td>
+            <td>{{ session.session_date }}</td>
+            <td>{{ session.notes|truncatechars:100 }}</td>
+            <td>{{ session.escalated_by.get_full_name|default:session.escalated_by.username|default:"System" }}</td>
+            <td>{{ session.escalated_at|date:"Y-m-d H:i"|default:"—" }}</td>
+            <td>
+              <form method="post" action="{% url 'support:resolve_session' session_pk=session.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-success"
+                  onclick="return confirm('Mark this escalation as resolved?')">
+                  Mark Resolved
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+  <div class="alert alert-success">
+    <strong>All clear.</strong> No pending escalations assigned to you.
+  </div>
+{% endif %}
+{% endblock %}

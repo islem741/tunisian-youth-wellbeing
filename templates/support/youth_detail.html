@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}{{ youth.get_full_name|default:youth.username }} — Detail{% endblock %}
+
+{% block content %}
+
+{# Header #}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h2 class="mb-1">{{ youth.get_full_name|default:youth.username }}</h2>
+    <div class="text-muted small">
+      {% if assignment %}
+        Peer Supporter: <strong>{{ assignment.peer_supporter.get_full_name|default:assignment.peer_supporter.username }}</strong>
+        {% if assignment.counselor %}
+          &nbsp;·&nbsp; Counselor: <strong>{{ assignment.counselor.get_full_name|default:assignment.counselor.username }}</strong>
+        {% endif %}
+      {% else %}
+        <span class="text-warning">No active assignment.</span>
+      {% endif %}
+    </div>
+  </div>
+  {% if is_peer_supporter and assignment %}
+    <a href="{% url 'support:session_log' youth_pk=youth.pk %}" class="btn btn-primary btn-sm">+ Log session</a>
+  {% endif %}
+</div>
+
+{# Tabs #}
+<ul class="nav nav-tabs mb-3" id="youthTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="mood-tab" data-bs-toggle="tab" data-bs-target="#mood" type="button" role="tab">Mood Trend</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions" type="button" role="tab">Sessions</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">Audit Log</button>
+  </li>
+</ul>
+
+<div class="tab-content" id="youthTabsContent">
+
+  {# Tab 1: Mood Trend #}
+  <div class="tab-pane fade show active" id="mood" role="tabpanel">
+    {% if mood_scores %}
+      {# Inline Unicode sparkline — ▁▂▃▄▅▆▇█ maps scores 1-10 to 8 blocks #}
+      <div class="mb-3">
+        <span class="text-muted small me-2">Trend (oldest → newest):</span>
+        <span class="font-monospace fs-4 lh-1" title="Unicode sparkline of last {{ mood_scores|length }} scores">
+          {% with blocks="▁▂▃▄▅▆▇█" %}
+            {% for entry in mood_scores reversed %}
+              {# Map score 1-10 to block index 0-7: index = (score-1)*7//9 #}
+              {% with idx=entry.score|add:"-1" %}
+                {% if idx == 0 %}▁
+                {% elif idx == 1 %}▂
+                {% elif idx == 2 %}▃
+                {% elif idx == 3 %}▄
+                {% elif idx == 4 %}▅
+                {% elif idx == 5 %}▆
+                {% elif idx == 6 or idx == 7 %}▇
+                {% else %}█
+                {% endif %}
+              {% endwith %}
+            {% endfor %}
+          {% endwith %}
+        </span>
+      </div>
+      <div class="card shadow-sm">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr><th>Date</th><th>Score</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+              {% for entry in mood_scores %}
+                <tr>
+                  <td>{{ entry.created_at|date:"Y-m-d H:i" }}</td>
+                  <td>
+                    {% if entry.score <= 4 %}
+                      <span class="badge bg-danger">{{ entry.score }}</span>
+                    {% elif entry.score <= 6 %}
+                      <span class="badge bg-warning text-dark">{{ entry.score }}</span>
+                    {% else %}
+                      <span class="badge bg-success">{{ entry.score }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ entry.note|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="text-muted">No mood scores recorded yet.</p>
+    {% endif %}
+  </div>
+
+  {# Tab 2: Sessions #}
+  <div class="tab-pane fade" id="sessions" role="tabpanel">
+    {% if sessions %}
+      <div class="card shadow-sm">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Date</th>
+                <th>Logged by</th>
+                <th>Mood</th>
+                <th>Notes</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for session in sessions %}
+                <tr>
+                  <td>{{ session.session_date }}</td>
+                  <td>{{ session.logged_by.get_full_name|default:session.logged_by.username }}</td>
+                  <td>
+                    {% if session.mood_at_session %}
+                      {% if session.mood_at_session <= 4 %}
+                        <span class="badge bg-danger">{{ session.mood_at_session }}</span>
+                      {% elif session.mood_at_session <= 6 %}
+                        <span class="badge bg-warning text-dark">{{ session.mood_at_session }}</span>
+                      {% else %}
+                        <span class="badge bg-success">{{ session.mood_at_session }}</span>
+                      {% endif %}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>{{ session.notes|truncatechars:80 }}</td>
+                  <td>
+                    {% if session.escalation_status == "none" %}
+                      <span class="badge bg-secondary">None</span>
+                    {% elif session.escalation_status == "pending" %}
+                      <span class="badge bg-warning text-dark">Pending</span>
+                    {% else %}
+                      <span class="badge bg-success">Resolved</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if session.escalation_status == "none" and is_peer_supporter %}
+                      <form method="post" action="{% url 'support:escalate_session' session_pk=session.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                          onclick="return confirm('Escalate this session to the counselor?')">
+                          Escalate
+                        </button>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="text-muted">No sessions logged yet.</p>
+    {% endif %}
+  </div>
+
+  {# Tab 3: Audit Log #}
+  <div class="tab-pane fade" id="audit" role="tabpanel">
+    {% if audit_events %}
+      <div class="card shadow-sm">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr><th>Date</th><th>Action</th><th>Actor</th><th>Detail</th></tr>
+            </thead>
+            <tbody>
+              {% for event in audit_events %}
+                <tr>
+                  <td class="text-nowrap">{{ event.created_at|date:"Y-m-d H:i" }}</td>
+                  <td>
+                    {% if event.action == "access_denied" or event.action == "supervisor_alert" %}
+                      <span class="badge bg-danger">{{ event.get_action_display }}</span>
+                    {% elif event.action == "escalation" or event.action == "auto_escalation" %}
+                      <span class="badge bg-warning text-dark">{{ event.get_action_display }}</span>
+                    {% else %}
+                      <span class="badge bg-secondary">{{ event.get_action_display }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ event.actor.get_full_name|default:event.actor.username|default:"System" }}</td>
+                  <td>{{ event.detail }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="text-muted">No audit events for this youth.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

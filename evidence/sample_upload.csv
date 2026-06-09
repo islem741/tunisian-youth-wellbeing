@@ -1,0 +1,7 @@
+external_id,unexcused_absences,grade_drop_points,disciplinary_flags,wellbeing_score,notes,period_label
+STU-0001-TUN,3,2,0,7,Doing better this week,March 2025
+STU-0002-TUN,8,5,1,3,Missed most classes — follow up needed,March 2025
+STU-0003-TUN,0,0,0,9,Strong attendance and attitude,March 2025
+STU-0004-TUN,5,4,2,4,Behavioural concerns flagged by teacher,March 2025
+STU-0005-TUN,1,1,0,8,Slight grade dip but engaged,March 2025
+STU-INVALID-XX,3,2,0,11,BAD ROW — wellbeing_score=11 exceeds max of 10,March 2025

@@ -1,195 +1,164 @@
-"""Seed the database with synthetic users, students and assessments.
-
-Run it with::
-
-    python manage.py seed_demo_data
-
-It is idempotent: running twice will not create duplicate users or
-students. It is the only supported way to populate the demo data set.
-"""
-
 from __future__ import annotations
 
 import random
-from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.utils import timezone
 from faker import Faker
 
 from accounts.models import Role
 from cases.models import (
-    Appointment,
-    CaseEvent,
-    RiskPolicy,
-    Student,
-    StressAssessment,
-    WorkflowState,
+    CaseEvent, InterventionPlan, SERSEntry, SERSPolicy, Student, WorkflowState,
 )
 
 User = get_user_model()
 
 DEMO_PASSWORD = "demopass123"
 
-
 SCHOOLS = [
-    ("Lycée Pilote Tunis", "Tunis"),
-    ("Collège El Khadra", "Ariana"),
-    ("Lycée Ibn Khaldoun", "Sousse"),
-    ("Collège Hannibal", "Bizerte"),
+    ("Lycée Pilote Tunis",  "Tunis"),
+    ("Collège El Khadra",   "Ariana"),
+    ("Lycée Ibn Khaldoun",  "Sousse"),
+    ("Collège Hannibal",    "Bizerte"),
 ]
+
+GRADES = ["7ème", "8ème", "9ème", "1ère Sec", "2ème Sec", "3ème Sec", "4ème Sec"]
+
+FEMALE_NAMES = ["Fatma", "Meriem", "Chiraz", "Amira", "Emna",
+                "Rania", "Sarra", "Yasmine", "Ines", "Nour"]
+MALE_NAMES   = ["Mohamed", "Ahmed", "Youssef", "Ali", "Amine",
+                "Slim", "Khalil", "Anis", "Fares", "Hamza"]
+LAST_NAMES   = ["Ben Ali", "Trabelsi", "Rekik", "Ghorbel", "Mzoughi",
+                "Gharbi", "Sellami", "Dridi", "Ellouze", "Chaibi"]
 
 
 class Command(BaseCommand):
-    help = "Create the demo users, students and synthetic stress assessments."
+    help = "Seed demo data for the Early-Warning platform."
 
-    def add_arguments(self, parser) -> None:
-        parser.add_argument(
-            "--students", type=int, default=40,
-            help="Total number of synthetic students to create (default: 40)",
-        )
-        parser.add_argument(
-            "--assessments", type=int, default=60,
-            help="Total number of stress assessments to create (default: 60)",
-        )
-        parser.add_argument(
-            "--seed", type=int, default=42,
-            help="Seed for the random generator, for reproducibility (default: 42)",
-        )
+    def add_arguments(self, parser):
+        parser.add_argument("--students", type=int, default=40)
+        parser.add_argument("--entries",  type=int, default=60)
+        parser.add_argument("--seed",     type=int, default=42)
 
     @transaction.atomic
-    def handle(self, *args, **options) -> None:
-        seed = options["seed"]
-        random.seed(seed)
-        faker = Faker()
-        Faker.seed(seed)
+    def handle(self, *args, **options):
+        random.seed(options["seed"])
+        fake = Faker()
+        Faker.seed(options["seed"])
 
-        # Users ---------------------------------------------------------
-        operator = self._ensure_user(
-            username="operator1",
-            role=Role.OPERATOR,
-            first="Amine", last="Ben Salah",
-            school=SCHOOLS[0][0], region=SCHOOLS[0][1],
-            is_staff=False,
-        )
-        operator2 = self._ensure_user(
-            username="operator2",
-            role=Role.OPERATOR,
-            first="Hela", last="Trabelsi",
-            school=SCHOOLS[1][0], region=SCHOOLS[1][1],
-            is_staff=False,
-        )
-        supervisor = self._ensure_user(
-            username="supervisor1",
-            role=Role.SUPERVISOR,
-            first="Dr. Nadia", last="Ouali",
-            school="", region="Tunis",
-            is_staff=False,
-        )
-        admin = self._ensure_user(
-            username="admin1",
-            role=Role.ADMIN,
-            first="Kamel", last="Haddad",
-            school="", region="",
-            is_staff=True, is_superuser=True,
-        )
+        # ---- users ----
+        operator1  = self._user("operator1",  Role.OPERATOR,
+                                "Youssef", "Rekik",
+                                school=SCHOOLS[0][0], region=SCHOOLS[0][1])
+        operator2  = self._user("operator2",  Role.OPERATOR,
+                                "Emna", "Gharbi",
+                                school=SCHOOLS[1][0], region=SCHOOLS[1][1])
+        supervisor = self._user("supervisor1", Role.SUPERVISOR,
+                                "Dr. Sarra", "Mzoughi",
+                                school="", region="Tunis")
+        admin      = self._user("admin1",      Role.ADMIN,
+                                "Zied", "Mansour",
+                                school="", region="",
+                                is_staff=True, is_superuser=True)
 
-        RiskPolicy.current()  # make sure the policy row exists
+        SERSPolicy.current()  # ensure singleton exists
 
-        # Students ------------------------------------------------------
+        # ---- students ----
         existing = Student.objects.count()
-        wanted = options["students"]
-        for _ in range(max(0, wanted - existing)):
+        for _ in range(max(0, options["students"] - existing)):
             school, region = random.choice(SCHOOLS)
+            gender = random.choice(["F", "M", "O"])
+            first  = random.choice(FEMALE_NAMES if gender == "F" else MALE_NAMES)
             Student.objects.create(
-                external_id=faker.unique.bothify(text="STU-####-???"),
-                first_name=faker.first_name(),
-                last_name=faker.last_name(),
-                age=random.randint(11, 18),
-                gender=random.choice(["F", "M", "O"]),
-                grade=random.choice(["7", "8", "9", "10", "11", "12"]),
+                external_id=fake.unique.bothify("STU-####-???"),
+                first_name=first,
+                last_name=random.choice(LAST_NAMES),
+                age=random.randint(12, 18),
+                gender=gender,
+                grade=random.choice(GRADES),
                 school=school,
                 region=region,
             )
 
         students = list(Student.objects.all())
 
-        # Assessments ---------------------------------------------------
-        for _ in range(options["assessments"]):
+        # ---- SERS entries ----
+        for _ in range(options["entries"]):
             student = random.choice(students)
-            ap = random.randint(10, 95)
-            sa = random.randint(10, 95)
-            he = random.randint(5, 95)
-            operator_obj = operator if student.school == operator.school else operator2
-            assessment = StressAssessment.objects.create(
+            op      = operator1 if student.school == operator1.school else operator2
+            entry   = SERSEntry.objects.create(
                 student=student,
-                operator=operator_obj,
-                academic_pressure=ap,
-                social_anxiety=sa,
-                home_environment=he,
-                notes=faker.sentence(),
+                operator=op,
+                period_label=fake.bothify("Week ## / 2025"),
+                unexcused_absences=random.randint(0, 10),
+                grade_drop_points=random.randint(0, 10),
+                disciplinary_flags=random.randint(0, 3),
+                wellbeing_score=random.randint(1, 10),
+                notes=fake.sentence(),
             )
             CaseEvent.objects.create(
-                assessment=assessment,
-                actor=operator_obj,
+                entry=entry, actor=op,
                 action=CaseEvent.Action.INTAKE,
-                to_state=assessment.workflow_state,
+                to_state=entry.workflow_state,
                 detail=(
-                    f"Synthetic intake. Risk level: "
-                    f"{assessment.get_risk_level_display()}."
+                    f"Seed intake. SERS={entry.sers_score} "
+                    f"({entry.get_risk_level_display()}). "
+                    f"{entry.risk_explanation}"
                 ),
             )
 
-        # Demo appointments for a couple of the high-risk cases --------
-        high_cases = StressAssessment.objects.filter(
+        # ---- move some high-risk cases into intervention ----
+        high_cases = SERSEntry.objects.filter(
             workflow_state=WorkflowState.ASSESSMENT
         )[:3]
         for case in high_cases:
             case.transition_to(
                 WorkflowState.INTERVENTION,
                 actor=supervisor,
-                reason="Escalated to intervention planning (demo data).",
+                reason="Escalated to intervention (demo data).",
             )
-            appt = Appointment.objects.create(
-                assessment=case,
-                scheduled_for=timezone.now() - timedelta(days=2),
-                scheduled_by=supervisor,
-                notes="Initial counseling session.",
+            InterventionPlan.objects.create(
+                entry=case,
+                plan_type=InterventionPlan.PlanType.COUNSELING,
+                assigned_to=supervisor,
+                notes="Initial counseling session — seeded.",
             )
-            appt.mark_missed(actor=supervisor)
+
+        # ---- failure-injection demo: one deliberate security event ----
+        self.stdout.write(
+            "Creating a security-event demo "
+            "(operator accessing wrong school)..."
+        )
+        if high_cases:
+            CaseEvent.objects.create(
+                entry=high_cases[0], actor=operator2,
+                action=CaseEvent.Action.SECURITY,
+                detail=(
+                    f"Operator {operator2.username} attempted to access "
+                    f"entry #{high_cases[0].pk} (student school: "
+                    f"{high_cases[0].student.school}, "
+                    f"operator school: {operator2.school})."
+                ),
+            )
 
         self.stdout.write(self.style.SUCCESS(
-            f"Seeded users (password='{DEMO_PASSWORD}'), "
-            f"{Student.objects.count()} students, "
-            f"{StressAssessment.objects.count()} assessments."
+            f"\nSeeded successfully (password='{DEMO_PASSWORD}'):\n"
+            f"  Users:    operator1, operator2, supervisor1, admin1\n"
+            f"  Students: {Student.objects.count()}\n"
+            f"  Entries:  {SERSEntry.objects.count()}\n"
+            f"  Plans:    {InterventionPlan.objects.count()}\n"
         ))
 
-    # -----------------------------------------------------------------
-    def _ensure_user(
-        self,
-        *,
-        username: str,
-        role: str,
-        first: str,
-        last: str,
-        school: str,
-        region: str,
-        is_staff: bool = False,
-        is_superuser: bool = False,
-    ) -> User:
+    def _user(self, username, role, first, last, *,
+              school, region, is_staff=False, is_superuser=False):
         user, created = User.objects.get_or_create(
             username=username,
-            defaults={
-                "first_name": first,
-                "last_name": last,
-                "role": role,
-                "school": school,
-                "region": region,
-                "is_staff": is_staff,
-                "is_superuser": is_superuser,
-            },
+            defaults=dict(
+                first_name=first, last_name=last, role=role,
+                school=school, region=region,
+                is_staff=is_staff, is_superuser=is_superuser,
+            ),
         )
         if created:
             user.set_password(DEMO_PASSWORD)

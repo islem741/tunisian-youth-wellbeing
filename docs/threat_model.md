@@ -1,42 +1,45 @@
-# Threat model (Track B — Security & Privacy)
+# Threat Model (Track B — Security & Privacy)
 
 ## Assets
 
-1. Synthetic student records (simulating sensitive psychosocial data).
-2. Stress assessments (component scores + free-text notes).
-3. Risk-policy configuration (impacts how many cases are flagged).
-4. User accounts (password hashes, role assignment).
+1. Synthetic student records (simulating sensitive engagement data).
+2. SERS entries (component scores + free-text notes).
+3. SERSPolicy configuration (impacts which students are flagged HIGH).
+4. User accounts (password hashes, role assignments).
+5. Audit log (CaseEvent — immutable chain of custody).
 
 ## Abuse cases
 
-| # | Actor                  | Abuse case                             | Mitigation |
-|---|------------------------|-----------------------------------------|------------|
-| 1 | Curious Operator       | Reads another school's students         | View-level scoping (`_scoped_assessments`) restricts Operators to their school. |
-| 2 | Disgruntled Operator   | Escalates/closes cases to hide issues   | Only Supervisor/Admin can call `case_transition`; denied attempts return 403 and are logged as `DENIED` events. |
-| 3 | Attacker               | Submits CSRF forged POST to change policy | Django `CsrfViewMiddleware` on every form; AJAX not used for destructive actions. |
-| 4 | Attacker               | Tries impossible/overflow scores        | `StressAssessment.clean()` raises `ValidationError`; the form rejects the submission with a friendly message; no DB write. |
-| 5 | Attacker               | Tries SQL injection via search / URL    | Django ORM parametrizes all queries; no raw SQL. |
-| 6 | Insider                | Exfiltrates large CSV of cases          | `export_cases_csv` only exports cases the user can already see (`_scoped_assessments`). |
-| 7 | Attacker               | Brute-forces login                      | Django's `LoginView` + password hashers; in production, add `django-axes` or rate-limit. |
+| # | Actor                | Abuse case                                     | Mitigation |
+|---|----------------------|------------------------------------------------|------------|
+| 1 | Curious Operator     | Reads another school's student cases           | `_scoped_entries` in `cases/views.py` restricts Operators to their own submissions + their school. Cross-school access returns 403 and is logged as `CaseEvent(action=SECURITY)`. |
+| 2 | Operator             | Transitions a case or edits SERS policy        | `@role_required(Role.SUPERVISOR/ADMIN)` on transition + policy views. Blocked with HTTP 403. |
+| 3 | Attacker             | CSRF-forged POST to change SERS weights        | `CsrfViewMiddleware` on every form; no AJAX for destructive actions. |
+| 4 | Attacker             | Submits out-of-range component values          | `SERSEntry.clean()` raises `ValidationError` with a user-facing message; no DB write. Tested in `test_sers_scoring.py`. |
+| 5 | Attacker             | SQL injection via search or URL parameters     | Django ORM parameterises all queries; no raw SQL used. |
+| 6 | Insider              | Exfiltrates bulk CSV of all cases              | `export_cases_csv` uses `_scoped_entries` — only the caller's accessible cases. Only Supervisor/Admin can reach this view. |
+| 7 | Attacker             | Brute-force login                              | Django's `LoginView` + PBKDF2 password hashing. Production hardening: add `django-axes`. |
+| 8 | Attacker             | Injects malicious CSV rows                     | `ingest_sers_csv` validates each row; malformed rows are rejected with per-row error messages. Full batch rolled back atomically. |
 
 ## Data classification
 
-| Field                     | Classification                       |
-|---------------------------|---------------------------------------|
-| `first_name`, `last_name` | Pseudo-PII (synthetic here). Would be PII in prod. |
-| `notes`                   | Free text — high sensitivity.        |
-| Component scores          | Sensitive indicator, role-gated.     |
+| Field                     | Classification                                |
+|---------------------------|-----------------------------------------------|
+| `first_name`, `last_name` | Pseudo-PII (synthetic here; PII in production)|
+| `notes`                   | Free text — high sensitivity, role-gated      |
+| SERS component scores     | Sensitive engagement indicators, role-gated   |
+| `risk_explanation`        | Derived — visible only in case detail view    |
 
 ## Sensitive-field handling
 
-- Notes are never exposed outside the case detail view.
-- The CSV export omits free-text notes on purpose (add-opt-in only).
-- Django admin is restricted to `admin1` (superuser + `is_staff`).
+- `notes` are never exposed in the case list or CSV export.
+- The CSV export omits free-text `notes` (add opt-in only).
+- Django admin is restricted to `admin1` (`is_staff=True`, `is_superuser=True`).
+- Every denied cross-school access is written to `CaseEvent(action=SECURITY)`.
 
 ## Future hardening (out of scope for this exam)
 
-- Add `django-axes` rate limiter.
-- Rotate `SECRET_KEY` from a secret manager.
-- Turn on `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, HSTS in
-  production settings.
-- Add per-field encryption for `notes` using `django-cryptography`.
+- Add `django-axes` rate limiter for login attempts.
+- Rotate `SECRET_KEY` from a secrets manager (e.g. AWS Secrets Manager).
+- Enable `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, HSTS in production.
+- Per-field encryption for `notes` using `django-cryptography`.
