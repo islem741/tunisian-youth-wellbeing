@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Supervisor Queue{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Supervisor Case Queue</h1>
+
+<div class="alert alert-warning d-flex align-items-center mb-4">
+  <strong class="me-2">High-risk cases requiring action:</strong>
+  {{ high_risk.count }}
+</div>
+
+<h5 class="mb-2">Cases in Assessment / Intervention</h5>
+<table class="table table-sm table-striped align-middle bg-white shadow-sm mb-5">
+  <thead class="table-light">
+    <tr>
+      <th>#</th>
+      <th>Student</th>
+      <th>School</th>
+      <th>State</th>
+      <th>Risk</th>
+      <th class="text-end">SERS</th>
+      <th>Period</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.pk }}</td>
+      <td><a href="{% url 'cases:detail' e.pk %}">{{ e.student.display_name }}</a></td>
+      <td>{{ e.student.school }}</td>
+      <td><span class="badge bg-secondary">{{ e.get_workflow_state_display }}</span></td>
+      <td><span class="risk-{{ e.risk_level }}">{{ e.get_risk_level_display }}</span></td>
+      <td class="text-end fw-bold">{{ e.sers_score }}</td>
+      <td>{{ e.period_label|default:"—" }}</td>
+      <td>
+        <a href="{% url 'cases:detail' e.pk %}" class="btn btn-sm btn-outline-primary">Review</a>
+      </td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="8" class="text-center text-muted py-3">No cases in queue.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h5 class="mb-2">Pending / Active Intervention Plans</h5>
+<table class="table table-sm align-middle bg-white shadow-sm">
+  <thead class="table-light">
+    <tr>
+      <th>Student</th>
+      <th>Type</th>
+      <th>Assigned to</th>
+      <th>Due</th>
+      <th>Status</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for plan in overdue_plans %}
+    <tr>
+      <td>
+        <a href="{% url 'cases:detail' plan.entry.pk %}">
+          {{ plan.entry.student.display_name }}
+        </a>
+      </td>
+      <td>{{ plan.get_plan_type_display }}</td>
+      <td>{{ plan.assigned_to.get_full_name }}</td>
+      <td>{{ plan.due_date }}</td>
+      <td>
+        <span class="badge bg-warning text-dark">{{ plan.get_status_display }}</span>
+      </td>
+      <td>
+        <form method="post" action="{% url 'cases:intervention_complete' plan.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-outline-success">Complete</button>
+        </form>
+      </td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="6" class="text-center text-muted py-3">No pending plans.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

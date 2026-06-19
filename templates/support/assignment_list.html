@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+
+{% block title %}Assignments{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Assignments</h2>
+
+{# Inline create form #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">New assignment</div>
+  <div class="card-body">
+    <form method="post" class="row g-3 align-items-end">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="col-md-4">
+          {% bootstrap_field field %}
+        </div>
+      {% endfor %}
+      <div class="col-md-auto">
+        {% bootstrap_button "Create" button_type="submit" button_class="btn-primary" %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Assignment table #}
+{% if assignments %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Youth</th>
+          <th>Peer Supporter</th>
+          <th>Counselor</th>
+          <th>Created</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assignments %}
+          <tr>
+            <td>
+              <a href="{% url 'support:youth_detail' youth_pk=a.youth.pk %}">
+                {{ a.youth.get_full_name|default:a.youth.username }}
+              </a>
+            </td>
+            <td>{{ a.peer_supporter.get_full_name|default:a.peer_supporter.username }}</td>
+            <td>{{ a.counselor.get_full_name|default:a.counselor.username|default:"—" }}</td>
+            <td>{{ a.created_at|date:"Y-m-d" }}</td>
+            <td>
+              {% if a.is_active %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-danger">Inactive</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+  <div class="alert alert-info">No assignments yet.</div>
+{% endif %}
+{% endblock %}

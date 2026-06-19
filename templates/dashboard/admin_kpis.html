@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Admin KPI Dashboard{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Program KPI Dashboard</h1>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-primary">{{ total }}</div>
+        <div class="label">Total Cases</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-success">{{ completion_rate }}%</div>
+        <div class="label">Workflow Completion</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-warning">{{ plan_completion }}%</div>
+        <div class="label">Intervention Completion</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-danger">{{ denied }}</div>
+        <div class="label">Denied Actions</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-danger">{{ security_events }}</div>
+        <div class="label">Security Events</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-secondary">{{ avg_score }}</div>
+        <div class="label">Avg SERS Score</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card kpi-card shadow-sm border-0">
+      <div class="card-body text-center">
+        <div class="value text-info">{{ validation_pass_rate }}%</div>
+        <div class="label">Validation Pass Rate</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">High-Risk Cases by Governorate</div>
+      <div class="card-body">
+        {% for region, count in by_region %}
+        <div class="d-flex justify-content-between border-bottom py-1">
+          <span>{{ region }}</span>
+          <strong class="text-danger">{{ count }}</strong>
+        </div>
+        {% empty %}
+          <p class="text-muted small">None.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">High-Risk Cases by School</div>
+      <div class="card-body">
+        {% for school, count in by_school %}
+        <div class="d-flex justify-content-between border-bottom py-1">
+          <span>{{ school }}</span>
+          <strong class="text-danger">{{ count }}</strong>
+        </div>
+        {% empty %}
+          <p class="text-muted small">None.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">Cases by Workflow State</div>
+      <div class="card-body">
+        {% for label, count in state_counts %}
+        <div class="d-flex justify-content-between border-bottom py-1">
+          <span>{{ label }}</span>
+          <strong>{{ count }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">Cases by Risk Level</div>
+      <div class="card-body">
+        {% for label, count in risk_counts %}
+        <div class="d-flex justify-content-between border-bottom py-1">
+          <span>{{ label }}</span>
+          <strong>{{ count }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+
+{% block title %}Log Session — {{ youth.username }}{% endblock %}
+
+{% block content %}
+
+{# Breadcrumb #}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'dashboard:home' %}">Dashboard</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'support:youth_detail' youth_pk=youth.pk %}">{{ youth.get_full_name|default:youth.username }}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Log Session</li>
+  </ol>
+</nav>
+
+<h2 class="mb-4">Log Support Session for <span class="text-primary">{{ youth.username }}</span></h2>
+
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <form method="post">
+          {% csrf_token %}
+          {% bootstrap_form form %}
+          <div class="d-flex gap-2 mt-3">
+            {% bootstrap_button "Save session" button_type="submit" button_class="btn-primary" %}
+            <a href="{% url 'support:youth_detail' youth_pk=youth.pk %}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

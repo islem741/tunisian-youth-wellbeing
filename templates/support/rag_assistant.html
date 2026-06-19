@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+
+{% block title %}Peer Support Guidelines Assistant{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Peer Support Guidelines Assistant</h2>
+
+<div class="alert alert-warning d-flex gap-2 align-items-start mb-4" role="alert">
+  <span class="fs-5">⚠️</span>
+  <div>
+    <strong>Disclaimer:</strong> This assistant provides general WHO/UNICEF guidance only.
+    Always escalate if you are concerned about a youth's safety.
+    All answers are sourced from the bundled guidelines — no answer is shown without a citation.
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+      <label for="query" class="form-label fw-semibold">
+        What would you like guidance on?
+      </label>
+      <textarea
+        id="query"
+        name="query"
+        class="form-control mb-3"
+        rows="3"
+        placeholder="e.g. active listening, when to escalate, confidentiality boundaries…"
+        required
+      >{{ query }}</textarea>
+      {% bootstrap_button "Search guidelines" button_type="submit" button_class="btn-primary" %}
+    </form>
+  </div>
+</div>
+
+{% if result %}
+  {% if result.abstained %}
+    {# Abstention — no citations, no fabricated answer #}
+    <div class="alert alert-secondary d-flex gap-2">
+      <span class="fs-5">🤷</span>
+      <div>
+        <strong>Not enough information</strong> (confidence: {{ result.confidence }})<br>
+        {{ result.answer }}
+      </div>
+    </div>
+  {% else %}
+    {# Confident answer — always show citations first #}
+    <div class="mb-3 d-flex align-items-center gap-2">
+      <h5 class="mb-0">
+        {{ result.citations|length }} guideline{{ result.citations|length|pluralize }} found
+      </h5>
+      <span class="badge bg-success">confidence {{ result.confidence }}</span>
+    </div>
+
+    {# Citation list BEFORE the answer text — no answer without sources #}
+    <div class="card mb-3 shadow-sm border-primary">
+      <div class="card-header fw-semibold text-primary">📚 Sources cited</div>
+      <ul class="list-group list-group-flush">
+        {% for citation in result.citations %}
+          <li class="list-group-item">{{ citation }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    {# Answer chunks, one card per cited section #}
+    {% with paragraphs=result.answer|linebreaksbr %}
+    {% endwith %}
+    {% for citation in result.citations %}
+      {% with idx=forloop.counter0 %}
+      <div class="card mb-3 shadow-sm" style="border-left: 4px solid #0d9488;">
+        <div class="card-header small text-muted fw-semibold">{{ citation }}</div>
+        <div class="card-body">
+          <p class="mb-0" style="white-space: pre-wrap;">
+            {# Split answer back into paragraphs by double-newline to align with citations #}
+            {% if idx == 0 %}
+              {{ result.answer|truncatechars_html:2000 }}
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      {% endwith %}
+    {% endfor %}
+  {% endif %}
+{% endif %}
+
+{% endblock %}

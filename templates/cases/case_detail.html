@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+
+{% block title %}Case #{{ entry.pk }} — {{ entry.student.display_name }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'cases:list' %}">Cases</a></li>
+    <li class="breadcrumb-item active">{{ entry.student.display_name }}</li>
+  </ol>
+</nav>
+
+<div class="row g-4 mb-4">
+  <!-- Student info card -->
+  <div class="col-md-5">
+    <div class="card h-100 shadow-sm">
+      <div class="card-header fw-semibold">Student Information</div>
+      <div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-5">Name</dt>        <dd class="col-7">{{ entry.student.display_name }}</dd>
+          <dt class="col-5">ID</dt>          <dd class="col-7 font-monospace">{{ entry.student.external_id }}</dd>
+          <dt class="col-5">Age / Grade</dt> <dd class="col-7">{{ entry.student.age }} / {{ entry.student.grade|default:"—" }}</dd>
+          <dt class="col-5">School</dt>      <dd class="col-7">{{ entry.student.school }}</dd>
+          <dt class="col-5">Governorate</dt> <dd class="col-7">{{ entry.student.region }}</dd>
+          <dt class="col-5">Period</dt>      <dd class="col-7">{{ entry.period_label|default:"—" }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <!-- SERS score breakdown -->
+  <div class="col-md-7">
+    <div class="card h-100 shadow-sm">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        SERS Score
+        <span class="badge fs-5 {% if entry.risk_level == 'high' %}bg-danger{% elif entry.risk_level == 'medium' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+          {{ entry.sers_score }} / 100
+        </span>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm mb-2">
+          <thead><tr><th>Component</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Unexcused Absences</td> <td>{{ entry.unexcused_absences }}</td></tr>
+            <tr><td>Grade Drop (pts)</td>   <td>{{ entry.grade_drop_points }}</td></tr>
+            <tr><td>Disciplinary Flags</td> <td>{{ entry.disciplinary_flags }}</td></tr>
+            <tr><td>Well-being Score</td>   <td>{{ entry.wellbeing_score }}/10</td></tr>
+          </tbody>
+        </table>
+        <div class="alert alert-light border small mb-0">
+          <strong>Explanation:</strong> {{ entry.risk_explanation }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Workflow transition -->
+{% if is_supervisor or is_program_admin %}
+  {% if allowed_transitions %}
+  <div class="card mb-4 shadow-sm">
+    <div class="card-header fw-semibold">
+      Workflow — current state:
+      <span class="badge bg-secondary">{{ entry.get_workflow_state_display }}</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{% url 'cases:transition' entry.pk %}">
+        {% csrf_token %}
+        {% bootstrap_form transition_form %}
+        <button class="btn btn-primary btn-sm">Apply Transition</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Intervention plans -->
+  <div class="card mb-4 shadow-sm">
+    <div class="card-header fw-semibold">Intervention Plans</div>
+    <div class="card-body">
+      {% if plans %}
+      <table class="table table-sm mb-3">
+        <thead>
+          <tr><th>Type</th><th>Assigned to</th><th>Due</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for plan in plans %}
+          <tr>
+            <td>{{ plan.get_plan_type_display }}</td>
+            <td>{{ plan.assigned_to.get_full_name }}</td>
+            <td>{{ plan.due_date }}</td>
+            <td>
+              <span class="badge {% if plan.status == 'completed' %}bg-success{% elif plan.status == 'escalated' %}bg-danger{% elif plan.status == 'active' %}bg-primary{% else %}bg-secondary{% endif %}">
+                {{ plan.get_status_display }}
+              </span>
+            </td>
+            <td>
+              {% if plan.status != 'completed' %}
+              <form method="post"
+                    action="{% url 'cases:intervention_complete' plan.pk %}"
+                    class="d-inline">
+                {% csrf_token %}
+                <button class="btn btn-sm btn-outline-success">Mark completed</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="text-muted small">No intervention plans yet.</p>
+      {% endif %}
+
+      <h6 class="mt-3">Create new intervention plan</h6>
+      <form method="post" action="{% url 'cases:intervention_create' entry.pk %}">
+        {% csrf_token %}
+        {% bootstrap_form intervention_form %}
+        <button class="btn btn-sm btn-success">Create Plan</button>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+<!-- Case timeline -->
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">Case Timeline</div>
+  <div class="card-body">
+    {% for event in events %}
+    <div class="timeline-entry">
+      <small class="text-muted">{{ event.created_at|date:"Y-m-d H:i" }}</small>
+      <span class="badge ms-1 {% if event.action == 'denied' or event.action == 'security' %}bg-danger{% elif event.action == 'state_change' %}bg-primary{% elif event.action == 'reminder' %}bg-warning text-dark{% else %}bg-light text-dark border{% endif %}">
+        {{ event.get_action_display }}
+      </span>
+      <p class="mb-0 mt-1 small">{{ event.human_summary }}</p>
+    </div>
+    {% empty %}
+      <p class="text-muted small">No events yet.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

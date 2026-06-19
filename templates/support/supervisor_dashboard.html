@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Supervisor Dashboard{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Supervisor Dashboard</h2>
+
+{# KPI cards #}
+<div class="row g-4 mb-5">
+  <div class="col-md-4">
+    <div class="card kpi-card shadow-sm text-center h-100">
+      <div class="card-body py-4">
+        <div class="value
+          {% if pending_count > 0 %}text-danger{% else %}text-success{% endif %}">
+          {{ pending_count }}
+        </div>
+        <div class="label mt-1">Pending escalations</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card kpi-card shadow-sm text-center h-100">
+      <div class="card-body py-4">
+        <div class="value text-primary">{{ active_assignments }}</div>
+        <div class="label mt-1">Active assignments</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card kpi-card shadow-sm text-center h-100">
+      <div class="card-body py-4">
+        <div class="value
+          {% if security_events %}text-danger{% else %}text-success{% endif %}">
+          {{ security_events|length }}
+        </div>
+        <div class="label mt-1">Recent access-denied events</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Security event table #}
+<h5 class="mb-3">Recent Security Events
+  <small class="text-muted fw-normal">(ACCESS_DENIED &amp; SUPERVISOR_ALERT, last 20)</small>
+</h5>
+
+{% if security_events %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Date</th>
+          <th>Action</th>
+          <th>Actor</th>
+          <th>Youth</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in security_events %}
+          <tr>
+            <td class="text-nowrap">{{ event.created_at|date:"Y-m-d H:i" }}</td>
+            <td>
+              {% if event.action == "access_denied" %}
+                <span class="badge bg-danger">Access denied</span>
+              {% else %}
+                <span class="badge bg-warning text-dark">Supervisor alert</span>
+              {% endif %}
+            </td>
+            <td>{{ event.actor.get_full_name|default:event.actor.username|default:"System" }}</td>
+            <td>
+              {% if event.youth %}
+                <a href="{% url 'support:youth_detail' youth_pk=event.youth.pk %}">
+                  {{ event.youth.get_full_name|default:event.youth.username }}
+                </a>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ event.detail }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+  <div class="alert alert-success">No security events on record.</div>
+{% endif %}
+
+<div class="mt-4">
+  <a href="{% url 'support:assignment_list' %}" class="btn btn-outline-primary">Manage assignments →</a>
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% load django_bootstrap5 %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Tunisian Student Early-Warning Platform{% endblock %}</title>
+  {% bootstrap_css %}
+  <style>
+    body { background: #f6f7fb; }
+    .navbar-brand { font-weight: 600; letter-spacing: 0.3px; }
+    .role-badge {
+      font-size: 0.75rem; padding: 0.25rem 0.55rem; border-radius: 999px;
+      background: #eaf2ff; color: #1b4fa4; border: 1px solid #c8dbff;
+    }
+    .kpi-card .value { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .kpi-card .label { color: #6c757d; font-size: 0.85rem; }
+    .timeline-entry { border-left: 2px solid #dbe3ef; padding: 0 0 1rem 1rem; position: relative; }
+    .timeline-entry::before {
+      content: ''; position: absolute; left: -5px; top: 0.35rem;
+      width: 8px; height: 8px; border-radius: 50%; background: #1b4fa4;
+    }
+    footer { color: #6c757d; font-size: 0.85rem; padding: 2rem 0; text-align: center; }
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+  <div class="container">
+    <a class="navbar-brand" href="{% url 'dashboard:home' %}">
+      Student Early-Warning Platform
+    </a>
+
+    <button class="navbar-toggler" type="button"
+            data-bs-toggle="collapse" data-bs-target="#mainNav"
+            aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="mainNav">
+      {% if user.is_authenticated %}
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+        {% if is_program_admin %}
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'dashboard:admin_kpis' %}">KPIs</a></li>
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'accounts:user_list' %}">Users</a></li>
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'cases:sers_policy' %}">SERS Policy</a></li>
+        {% endif %}
+
+        {% if is_supervisor or is_program_admin %}
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'dashboard:supervisor_queue' %}">Queue</a></li>
+        {% endif %}
+
+        <li class="nav-item"><a class="nav-link text-white" href="{% url 'cases:list' %}">Cases</a></li>
+
+        {% if can_manage_sers %}
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'cases:entry_create' %}">New Entry</a></li>
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'cases:entry_upload' %}">Upload CSV</a></li>
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'cases:student_create' %}">New Student</a></li>
+        {% endif %}
+
+        {% if is_supervisor or is_program_admin %}
+          <li class="nav-item"><a class="nav-link text-white" href="{% url 'cases:export_csv' %}">Export CSV</a></li>
+        {% endif %}
+
+      </ul>
+
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-white">{{ user.get_full_name|default:user.username }}</span>
+        <span class="role-badge">{{ user.get_role_display }}</span>
+        <form method="post" action="{% url 'accounts:logout' %}" class="d-inline ms-1">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline-light">Sign out</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="ms-auto">
+        <a class="btn btn-sm btn-outline-light" href="{% url 'accounts:login' %}">Sign in</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<main class="container">
+  {% bootstrap_messages %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  <div class="container">
+    Decision-support tool for school staff, psychologists and program directors.
+    All data is synthetic. This tool is <strong>not</strong> a clinical or legal final authority.
+  </div>
+</footer>
+{% bootstrap_javascript %}
+</body>
+</html>

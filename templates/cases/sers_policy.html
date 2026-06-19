@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+
+{% block title %}SERS Policy Configuration{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <h1 class="h3 mb-2">SERS Policy</h1>
+    <p class="text-muted small mb-4">
+      Configure scoring weights and risk thresholds. Changes apply to all
+      new entries immediately. Existing entries are not recomputed.
+    </p>
+
+    <div class="card shadow-sm mb-4">
+      <div class="card-header">
+        Current policy — last updated: {{ policy.updated_at|date:"Y-m-d H:i" }}
+      </div>
+      <div class="card-body">
+        <form method="post">
+          {% csrf_token %}
+          {% bootstrap_form form %}
+          <button class="btn btn-primary">Save Policy</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card border-secondary shadow-sm">
+      <div class="card-header text-secondary fw-semibold">Score Formula</div>
+      <div class="card-body font-monospace small">
+        SERS = (absence_weight × unexcused_absences)<br>
+        &nbsp;&nbsp;&nbsp;&nbsp; + (grade_drop_weight × grade_drop_points)<br>
+        &nbsp;&nbsp;&nbsp;&nbsp; + (behavior_weight × disciplinary_flags)<br>
+        &nbsp;&nbsp;&nbsp;&nbsp; + (wellbeing_weight × (10 − wellbeing_score))<br>
+        capped at 100.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

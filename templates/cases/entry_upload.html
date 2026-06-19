@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% load django_bootstrap5 %}
+
+{% block title %}Upload SERS CSV{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <h1 class="h3 mb-4">Bulk Upload SERS Data (CSV)</h1>
+
+    <div class="card mb-4 shadow-sm">
+      <div class="card-header">Upload file</div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          {% bootstrap_form form %}
+          <button class="btn btn-primary">Upload & Import</button>
+        </form>
+      </div>
+    </div>
+
+    {% if result %}
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">Import Result</div>
+      <div class="card-body">
+        <p class="mb-1">
+          <span class="badge bg-success">{{ result.created }} imported</span>
+          <span class="badge bg-warning text-dark ms-1">{{ result.skipped }} skipped</span>
+        </p>
+        {% if result.errors %}
+        <table class="table table-sm table-bordered mt-3">
+          <thead class="table-danger">
+            <tr><th>Row</th><th>Error</th></tr>
+          </thead>
+          <tbody>
+            {% for err in result.errors %}
+            <tr>
+              <td class="font-monospace">{{ err.row }}</td>
+              <td>{{ err.error }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card mt-4 shadow-sm border-info">
+      <div class="card-header text-info fw-semibold">Expected CSV Format</div>
+      <div class="card-body small font-monospace">
+        external_id,unexcused_absences,grade_drop_points,disciplinary_flags,wellbeing_score,notes,period_label<br>
+        STU-0001-TUN,3,2,0,7,Doing better this week,March 2025<br>
+        STU-0002-TUN,8,5,1,3,Missed most classes,March 2025
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
